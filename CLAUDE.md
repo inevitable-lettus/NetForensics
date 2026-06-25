@@ -99,14 +99,26 @@ minute. **No spaghetti.** These are enforced, not aspirational.
 
 ## Commands
 
-_To be filled when the scaffold exists (Phase 0)._
+Run everything from the repo root. A virtualenv lives in `.venv/` (git-ignored).
 
 ```
-# run backend      — TBD (FastAPI)
-# run frontend     — TBD (React)
-# run tests        — TBD
-# analyze a pcap   — TBD
+# one-time setup
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+
+# check environment readiness (flags missing deps + tshark — risk #4)
+python scripts/check_deps.py
+
+# run tests
+python -m pytest -q
+
+# run backend    — TBD (FastAPI app lands in Phase 1)
+# run frontend   — TBD (React, Phase 1)
+# analyze a pcap — TBD (pipeline orchestrator, Phase 1)
 ```
+
+External system dep: **tshark** (Wireshark) for the PyShark parse path — `brew
+install wireshark`. Not a pip package; the dpkt path runs without it.
 
 ## Doc maintenance
 

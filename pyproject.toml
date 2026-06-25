@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netforensics"
+version = "0.0.1"
+description = "Explainable packet-forensics tool with a court-oriented evidence-integrity layer."
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
+
+[tool.pytest.ini_options]
+# Run from repo root so `backend` and `tests` import cleanly.
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"

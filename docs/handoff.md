@@ -8,8 +8,8 @@ holds where the build is, what to do next, and unresolved decisions. For the des
 
 ## Current phase
 
-**Pre–Phase 0.** No code yet. Context docs just created. Next concrete work is the
-Phase 0 scaffold.
+**Phase 0 complete.** Scaffold + contracts in place, test suite green (8 passed),
+deps install on Python 3.14. Next concrete work is **Phase 1 — vertical slice**.
 
 ## Done so far
 
@@ -19,18 +19,32 @@ Phase 0 scaffold.
   `docs/handoff.md` (this file). — 2026-06-21
 - Build roadmap created: [`../plan.md`](../plan.md) — phased, with `[CORE]`/`[INDEP]`
   ownership tags. — 2026-06-23
+- **Phase 0 scaffold** — repo layout, shared models, detector interface, config,
+  test harness, dep-check. — 2026-06-25
 
-## Next up (Phase 0 — Foundation & contracts) · `[INDEP]`
+## Next up (Phase 1 — Vertical slice) · *(mixed)*
 
-Per [`../plan.md`](../plan.md). Scaffolding the user later fills; no business logic yet.
+Per [`../plan.md`](../plan.md). Thinnest end-to-end path: upload → seal → DNS-exfil
+→ PDF. `[INDEP]` items Claude builds solo; `[CORE]` items follow the
+stub→user-implements loop.
 
-- [ ] Repo scaffold per [`architecture.md`](architecture.md) layout.
-- [ ] Shared data models defined once: `Flow`, `Features`, `Finding`, `SealRecord`,
-      `CustodyEntry`.
-- [ ] Detector base interface: `Detector.run(flows) -> list[Finding]`.
-- [ ] Config module (single source of truth for thresholds/baselines/allowlists).
-- [ ] Test harness + crafted pcap fixtures; `requirements` + tshark availability check.
-- [ ] Fill the **Commands** section in [`../CLAUDE.md`](../CLAUDE.md) once runnable.
+- [ ] `[INDEP]` Upload endpoint + file storage; SQLite seal table + DAO; pipeline
+      orchestrator; minimal PDF; minimal React upload/results page.
+- [ ] `[CORE]` BLAKE3 seal function (pcap → `SealRecord`).
+- [ ] `[CORE]` dpkt bulk parse → DNS flows.
+- [ ] `[CORE]` DNS-exfil entropy detector (first real detector).
+
+### Phase 0 — done
+
+- [x] Repo scaffold per [`architecture.md`](architecture.md) layout.
+- [x] Shared data models defined once: `Flow`/`Features`, `Finding`, `SealRecord`,
+      `CustodyEntry` (`backend/models.py`).
+- [x] Detector base interface `Detector.run(flows) -> list[Finding]`
+      (`backend/detectors/base.py`).
+- [x] Config module — single source of truth (`backend/config.py`, `CONFIG` singleton).
+- [x] Test harness + dependency-free pcap/flow fixtures; `requirements.txt`,
+      `scripts/check_deps.py` (tshark availability check).
+- [x] Filled the **Commands** section in [`../CLAUDE.md`](../CLAUDE.md).
 
 ## Roadmap snapshot
 
@@ -45,11 +59,22 @@ Authoritative roadmap is [`../plan.md`](../plan.md). Phases: 0 Foundation & cont
 | 1 | **RFC 3161 TSA choice + offline fallback** | Live TSA will fail on demo-day wifi and kill the headline feature. Pick a TSA (e.g. freeTSA.org) and cache/fallback so it never hard-fails. | OPEN |
 | 2 | **Curate demo pcaps so all 4 detectors fire** | A demo where TLS/SSLBL shows zero hits is weak. Hand-pick captures from malware-traffic-analysis.net per detector. | OPEN |
 | 3 | **"Court-admissible" wording** | Overclaiming invites a brutal judge question. Reframe toward "evidentiary integrity / tamper-evident, designed toward admissibility." Prove tamper-evidence live instead. | OPEN |
-| 4 | **tshark on the demo laptop** | PyShark needs tshark installed; verify on the actual machine. Keep dpkt path independent. | OPEN |
+| 4 | **tshark on the demo laptop** | PyShark needs tshark installed; verify on the actual machine. Keep dpkt path independent. | OPEN — confirmed MISSING on this dev machine (`scripts/check_deps.py`). `brew install wireshark` before relying on PyShark; dpkt path unaffected. |
 | 5 | **Custody-log tamper-evidence mechanism** | Decide hash-chained entries (each references prior). Must be genuine, not cosmetic. | OPEN |
 
 ## Session log (newest first)
 
+- **2026-06-25** — **Phase 0 scaffold shipped** (all `[INDEP]`). Created
+  `backend/{ingest,parse,detectors,evidence,report,db,api}`, `frontend/`,
+  `sample-pcaps/`, `tests/`, `scripts/`. Shared models in `backend/models.py`
+  (`Flow`/`Features`/`DnsFeatures`/`TlsFeatures`, `Finding`+`Severity`, `SealRecord`,
+  `CustodyEntry`). Detector contract `backend/detectors/base.py`. Single-source config
+  `backend/config.py` (`CONFIG`). Dependency-free fixtures (`tests/fixtures/pcap_builder.py`:
+  libpcap byte writer + flow builders). Contract tests green — **8 passed**.
+  `requirements.txt` + `pyproject.toml` (pytest config) + `scripts/check_deps.py`.
+  Verified: full `requirements.txt` installs on Python 3.14.3 in `.venv/`. tshark
+  confirmed MISSING (risk #4). Filled CLAUDE.md Commands. Repo on `main`, NOT committed —
+  awaiting user. Next: Phase 1 vertical slice.
 - **2026-06-23** — Created [`../plan.md`](../plan.md): phased build roadmap with
   `[CORE]`/`[INDEP]` ownership tags. Strategy locked: user owns all algorithmic code
   (parsing, detectors, evidence logic) with "Claude scaffolds stub+test → user

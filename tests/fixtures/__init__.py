@@ -1,0 +1,1 @@
+"""Crafted fixtures for tests."""

@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Local data / evidence — never commit captures or fetched blocklists
+sample-pcaps/*.pcap
+sample-pcaps/*.pcapng
+sample-pcaps/*.cache
+*.sqlite
+*.db
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

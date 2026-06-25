@@ -1,0 +1,26 @@
+# NetForensics backend dependencies.
+# tshark (Wireshark) is an EXTERNAL system dependency for the PyShark path —
+# install separately (e.g. `brew install wireshark`); it is not a pip package.
+
+# Packet parsing
+dpkt>=1.9.8
+pyshark>=0.6
+
+# Detection / stats
+numpy>=1.26
+scipy>=1.11
+
+# Evidence integrity
+blake3>=0.4
+rfc3161-client>=0.1.2        # RFC 3161 trusted timestamping (TSA client)
+
+# Backend / API
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9      # file uploads
+
+# Report generation
+reportlab>=4.1
+
+# Tests
+pytest>=8.0
