@@ -22,17 +22,26 @@ deps install on Python 3.14. Next concrete work is **Phase 1 — vertical slice*
 - **Phase 0 scaffold** — repo layout, shared models, detector interface, config,
   test harness, dep-check. — 2026-06-25
 
-## Next up (Phase 1 — Vertical slice) · *(mixed)*
+## Next up (Phase 1 — Vertical slice)
 
-Per [`../plan.md`](../plan.md). Thinnest end-to-end path: upload → seal → DNS-exfil
-→ PDF. `[INDEP]` items Claude builds solo; `[CORE]` items follow the
-stub→user-implements loop.
+Per [`../plan.md`](../plan.md) file/phase order; ownership tags superseded — see
+"Collaboration model" above. User writes every item solo, Claude explains + reviews.
 
-- [ ] `[INDEP]` Upload endpoint + file storage; SQLite seal table + DAO; pipeline
-      orchestrator; minimal PDF; minimal React upload/results page.
-- [ ] `[CORE]` BLAKE3 seal function (pcap → `SealRecord`).
-- [ ] `[CORE]` dpkt bulk parse → DNS flows.
-- [ ] `[CORE]` DNS-exfil entropy detector (first real detector).
+- [x] BLAKE3 seal function (pcap → `SealRecord`) — `backend/evidence/seal.py`.
+      Smoke-tested manually (temp file → correct `SealRecord`, all fields populated).
+- [x] `tests/test_seal.py` — deterministic-hash + one-byte-flip-changes-hash cases.
+      Untracked, not yet committed.
+- [x] `backend/parse/entropy.py` — `shannon_entropy(text) -> float`, bits/char via
+      `Counter` + `-Σp·log2(p)`. Untracked, not yet committed. No unit test yet.
+- [ ] **DNS-exfil detector (`backend/detectors/dns_exfil.py`) — in progress.** Concepts +
+      Python syntax explained and written up in
+      [`notes/dns-exfil-detector.md`](notes/dns-exfil-detector.md). Now the first
+      pairing-mode core-logic item per the updated collaboration model — draft one
+      piece, explain, checkpoint. Testable now against `dns_flow()` fixtures — does NOT
+      need the parser first. `entropy.py` above is its dependency.
+- [ ] dpkt bulk parse → DNS flows (`backend/parse/dns_parser.py`).
+- [ ] Upload endpoint + file storage; SQLite seal table + DAO; pipeline orchestrator;
+      minimal PDF; minimal React upload/results page.
 
 ### Phase 0 — done
 
@@ -52,6 +61,35 @@ Authoritative roadmap is [`../plan.md`](../plan.md). Phases: 0 Foundation & cont
 1 Vertical slice (upload→seal→DNS-exfil→PDF) → 2 Parsing depth & remaining detectors →
 3 Evidence-integrity layer (the differentiator) → 4 Report, polish & demo.
 
+## Collaboration model — updated 2026-08-21 (pairing mode)
+
+Superseded the 2026-07-16 "user writes everything solo" model (kept below for
+history). New split, per [`../CLAUDE.md`](../CLAUDE.md) "Collaboration model":
+
+- **Plumbing** (FastAPI, SQLite, React, PDF export) — Claude writes directly, user
+  reviews the diff. No walkthrough.
+- **Core logic** (four detectors + evidence-integrity layer) — pairing/teaching mode.
+  Claude drafts one function/module at a time, briefly explains the approach *before*
+  writing, stops for review after each piece, never chains core files without a
+  checkpoint. If the user asks "why X not Y," answer by teaching trade-offs/failure
+  modes. Call out subtleties (hash collisions, timestamp forgery, FP rates) explicitly.
+  No unprompted full-detector dumps. If the user goes quiet at a checkpoint, ping
+  rather than assume approval and continue.
+
+This is a personal project, no deadline — the point is learning the concepts, not
+just shipping. Supersedes the `[CORE]`/`[INDEP]` tags in [`plan.md`](plan.md) as the
+*working* model (those tags now map to: `[CORE]` = pairing/teaching mode, `[INDEP]` =
+Claude writes directly); plan.md's phase/file order still holds.
+
+<details>
+<summary>Previous model — 2026-07-16 (historical)</summary>
+
+User is learning Python and wanted to write **every part of the codebase themselves**,
+not just `[CORE]` items — including the `[INDEP]` plumbing plan.md assigned to Claude
+solo. Loop was: Claude explains the concept + what's supposed to happen (plain
+language, no code) → user researches + writes it → user asks for help only if stuck.
+</details>
+
 ## Open decisions / risks to resolve
 
 | # | Issue | Why it matters | Status |
@@ -62,8 +100,40 @@ Authoritative roadmap is [`../plan.md`](../plan.md). Phases: 0 Foundation & cont
 | 4 | **tshark on the demo laptop** | PyShark needs tshark installed; verify on the actual machine. Keep dpkt path independent. | OPEN — confirmed MISSING on this dev machine (`scripts/check_deps.py`). `brew install wireshark` before relying on PyShark; dpkt path unaffected. |
 | 5 | **Custody-log tamper-evidence mechanism** | Decide hash-chained entries (each references prior). Must be genuine, not cosmetic. | OPEN |
 
-## Session log (newest first)
+- **2026-08-21** — Collaboration model changed to **pairing mode** (see
+  [`../CLAUDE.md`](../CLAUDE.md) "Collaboration model" and updated section above):
+  Claude writes plumbing directly; core logic (detectors, evidence layer) goes back to
+  Claude drafting one piece at a time with a brief explain-first + review checkpoint,
+  replacing the 2026-07-16 "user writes everything solo" model. Updated all four
+  context docs to match, incl. renaming the 4th detector "malicious TLS client" →
+  "JA3 fingerprinting" throughout (mechanism unchanged — JA3 hash vs. abuse.ch SSLBL).
+  Also reconciled this file with actual untracked repo state: `tests/test_seal.py` and
+  `backend/parse/entropy.py` exist but aren't committed yet; `docs/notes/` untracked.
+  No detector code written this session.
+- **2026-08-20** — Session was explain-only, no application code written. Walked the
+  full concept + Python-syntax set needed for the DNS-exfil detector (ABC subclassing,
+  guard clauses, `None` handling on `Features.dns`, allowlist suffix-matching with
+  dot-anchoring, query-rate normalisation via `total_seconds()`, signal combination,
+  f-string evidence construction, `Finding` keyword construction, helper decomposition,
+  test shape). Captured as durable notes: [`notes/dns-exfil-detector.md`](notes/dns-exfil-detector.md).
+  Noted two things worth carrying forward: (a) `dns_parser.py` is NOT a blocker — the
+  detector consumes `Flow`+`DnsFeatures` and is fully testable today against
+  `tests/fixtures/pcap_builder.py::dns_flow`; (b) entropy math caps per-char Shannon at
+  `log2(len)`, so the 4.2 threshold implicitly requires subdomain length >= 19 — may need
+  tuning against real captures. Next: user writes `backend/detectors/dns_exfil.py` +
+  `tests/test_dns_exfil.py`, then `tests/test_seal.py` still outstanding.
 
+- **2026-07-16 (cont.)** — `backend/evidence/seal.py` `seal_pcap()` written by user,
+  reviewed line-by-line (fixed: `f.read()` vs `...` placeholder, filename via
+  `os.path.basename`, dropped a confused `int.to_bytes`/`int()` round-trip for the size
+  field, removed dead unreachable code). Smoke-tested — works correctly. Next: write
+  `tests/test_seal.py`, then move to dpkt DNS parsing.
+- **2026-07-16** — Decided collaboration model: user writes all code solo (learning
+  Python), Claude's role narrows to explaining concepts + scaffolding tests, not
+  co-authoring implementations. Walked full Phase 1–4 file-by-file build order (see
+  plan.md phases). Starting Phase 1 step 1: `backend/evidence/seal.py`
+  (BLAKE3 seal function) — concept explained, user writing it solo. No code written
+  this session yet.
 - **2026-06-25** — **Phase 0 scaffold shipped** (all `[INDEP]`). Created
   `backend/{ingest,parse,detectors,evidence,report,db,api}`, `frontend/`,
   `sample-pcaps/`, `tests/`, `scripts/`. Shared models in `backend/models.py`

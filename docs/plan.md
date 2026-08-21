@@ -12,17 +12,25 @@ reference: [`docs/architecture.md`](docs/architecture.md) ·
 Every work item below is tagged by owner:
 
 - **`[CORE]`** — all algorithmic code: parsing/feature-extraction, the four detectors, and
-  the evidence-integrity logic. **The user implements these closely.** Claude only
-  scaffolds the interface, a typed stub + docstring contract, and a failing unit test.
+  the evidence-integrity logic. **Pairing/teaching mode:** Claude drafts one function or
+  module at a time, briefly explains the approach *before* writing it, then stops for
+  user review before the next piece. No unprompted full-detector dumps, no chaining
+  multiple core files without a checkpoint.
 - **`[INDEP]`** — pure plumbing: scaffold, FastAPI, SQLite/DAO, file storage, frontend,
-  PDF, test harness. **Claude builds these solo.**
+  PDF, test harness. **Claude writes these directly**, user reviews the diff.
 
-**The loop for every `[CORE]` item:** Claude delivers `stub + contract + failing test` →
-user writes the algorithm inside → run the test → green. The user never designs from a
-blank file; they fill a defined contract.
+**The loop for every `[CORE]` item:** Claude explains the approach in a few sentences →
+drafts the piece → stops → user reviews (asks "why X not Y" freely — answer by
+teaching trade-offs/failure modes) → next piece only after checkpoint clears.
 
-**Parallelism:** while the user implements a `[CORE]` item, Claude builds the next phase's
-`[INDEP]` plumbing. Phase N core work and Phase N+1 scaffolding can overlap.
+**Parallelism:** while a `[CORE]` item is mid-checkpoint, Claude can build the next
+phase's `[INDEP]` plumbing. Phase N core work and Phase N+1 plumbing can overlap.
+
+> **Current model — 2026-08-21 (pairing mode)**, see [`handoff.md`](handoff.md)
+> "Collaboration model" and [`../CLAUDE.md`](../CLAUDE.md). This restores the
+> `[CORE]`/`[INDEP]` split above as the working model (superseding the 2026-07-16
+> "user writes everything solo" phase, itself now historical). Phase order and file
+> list below are unchanged throughout.
 
 All work follows the [`CLAUDE.md`](CLAUDE.md) coding standards: functions ≤50–60 lines,
 the shared `Detector` interface, one source of truth for thresholds, strict separation of
@@ -75,7 +83,7 @@ string → exported to PDF.
   computation.
 - `[CORE]` **C2 beaconing** detector — inter-arrival-time regularity.
 - `[CORE]` **Port scan / recon** detector — fan-out analysis.
-- `[CORE]` **Malicious TLS client** detector — JA3 matched vs abuse.ch SSLBL.
+- `[CORE]` **JA3 fingerprinting** detector — JA3 hash matched vs abuse.ch SSLBL.
 - `[INDEP]` SSLBL blocklist fetch + local cache.
 - `[INDEP]` Allowlist wiring (CDN/heartbeat false-positive suppression).
 - `[INDEP]` Route all findings through the pipeline + DB; results UI renders every detector

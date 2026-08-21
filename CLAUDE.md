@@ -1,12 +1,13 @@
 # NetForensics
 
 Explainable packet-forensics tool for cybercrime investigators. Ingests a `.pcap`,
-runs four transparent detectors (DNS exfil, C2 beaconing, port scan, malicious TLS),
+runs four transparent detectors (DNS exfil, C2 beaconing, port scan, JA3 fingerprinting),
 and wraps results in a **court-admissible evidence layer** (BLAKE3 hash + RFC 3161
 trusted timestamp + append-only chain of custody → forensic PDF report).
 
-Built for **KANAD S.H.I.E.L.D. 2026** (Ahmedabad City Police Cybersecurity Innovation
-Challenge) · Category 2 · Problem ID `KANADSHIELD26_P2_08`.
+Personal project — no deadline. Point is learning the security concepts, not just
+shipping. Built originally for **KANAD S.H.I.E.L.D. 2026** (Ahmedabad City Police
+Cybersecurity Innovation Challenge) · Category 2 · Problem ID `KANADSHIELD26_P2_08`.
 
 **The differentiator is the evidence-integrity layer, not the detection.** Zeek/Suricata
 already detect these patterns; nobody else seals the evidence and proves to a court it
@@ -46,6 +47,35 @@ current build state, what to do next, and open decisions.
 4. **Scope is fixed to four detectors.** Resist scope creep (no live capture, no TCP
    reassembly, no ML). Shippable beats ambitious. New detectors plug in without
    touching the evidentiary core.
+
+## Collaboration model — pairing mode (2026-08-21)
+
+Two kinds of code, two ways of working:
+
+- **Plumbing** — FastAPI routes, SQLite schema, React components, PDF export. Claude
+  writes it directly. User reviews the diff, no walkthrough needed.
+- **Core logic** — the four detectors and the evidence-integrity layer (BLAKE3 hashing,
+  RFC 3161 timestamps, append-only custody log). Teaching mode:
+  1. Draft **one function or module at a time** — small enough to read in one sitting.
+  2. Before writing it, briefly explain the approach and *why it works* (a few
+     sentences, not an essay) — e.g. why a JA3 hash is a usable fingerprint, why
+     beaconing shows up as timing periodicity, why hash-chaining makes a log
+     tamper-evident.
+  3. After drafting, **stop and let the user review** before starting the next piece.
+     Never chain multiple core-logic files together without a checkpoint.
+  4. If asked "why X instead of Y," answer by teaching — trade-offs, alternatives,
+     failure modes — not just justifying the choice made.
+  5. Call out subtleties explicitly: hash collision edge cases, timestamp forgery
+     vectors, a detector's false-positive rate — whatever a real forensics tool would
+     need to defend.
+
+**Don't:**
+- Dump a full detector or the evidence-chain implementation unprompted "to save time."
+- Apply teaching-mode depth to plumbing — save it for what matters.
+- Assume silence at a checkpoint means approval — ping instead of continuing.
+
+This supersedes the earlier "user writes everything solo" model recorded in
+[`docs/handoff.md`](docs/handoff.md) (2026-07-16 entry, now historical).
 
 ## Coding standards
 
@@ -126,3 +156,5 @@ install wireshark`. Not a pip package; the dpkt path runs without it.
   dated session-log entry; refresh current phase / next-up / open risks).
 - Update `architecture.md` / `logic.md` **only when the design itself changes**, not
   routinely. Keep roles separate — do not duplicate detail across docs.
+- Checkpoints in pairing mode (see Collaboration model above) are a per-session
+  concern — track them in the handoff session log, not here.

@@ -92,7 +92,7 @@ Each is a transparent rule, not a model.
 - **Evidence string (example):** *"Source `<src>` contacted 850 distinct ports across 12
   hosts in 8s — fan-out consistent with a port scan."*
 
-### 4. Malicious TLS client
+### 4. JA3 fingerprinting
 - **Method:** Compute the **JA3** fingerprint of the TLS handshake; match against the
   **abuse.ch SSLBL** blocklist.
 - **Signal:** C2 clients typically do not randomise their handshakes, so a JA3 match to a

@@ -68,7 +68,7 @@ cybersec_hackathon/
 ├── backend/               (proposed)
 │   ├── ingest/            Stage 1 — hashing + timestamping (seal)
 │   ├── parse/             Stage 2 — dpkt + PyShark flow reconstruction
-│   ├── detectors/         Stage 3 — one module per detector (dns_exfil, c2_beacon, port_scan, tls_client)
+│   ├── detectors/         Stage 3 — one module per detector (dns_exfil, c2_beacon, port_scan, ja3_fingerprint)
 │   ├── evidence/          custody log + integrity verification
 │   ├── report/            Stage 4 — PDF generation
 │   ├── db/                SQLite schema + access
