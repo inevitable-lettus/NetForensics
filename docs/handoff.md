@@ -17,14 +17,14 @@ deps install on Python 3.14. Next concrete work is **Phase 1 — vertical slice*
   (`NetForensics_Flow_Diagram.pdf`) authored.
 - Context docs created: `CLAUDE.md`, `docs/architecture.md`, `docs/logic.md`,
   `docs/handoff.md` (this file). — 2026-06-21
-- Build roadmap created: [`../plan.md`](../plan.md) — phased, with `[CORE]`/`[INDEP]`
+- Build roadmap created: [`plan.md`](plan.md) — phased, with `[CORE]`/`[INDEP]`
   ownership tags. — 2026-06-23
 - **Phase 0 scaffold** — repo layout, shared models, detector interface, config,
   test harness, dep-check. — 2026-06-25
 
 ## Next up (Phase 1 — Vertical slice)
 
-Per [`../plan.md`](../plan.md) file/phase order; ownership tags superseded — see
+Per [`plan.md`](plan.md) file/phase order; ownership tags superseded — see
 "Collaboration model" above. User writes every item solo, Claude explains + reviews.
 
 - [x] BLAKE3 seal function (pcap → `SealRecord`) — `backend/evidence/seal.py`.
@@ -57,7 +57,7 @@ Per [`../plan.md`](../plan.md) file/phase order; ownership tags superseded — s
 
 ## Roadmap snapshot
 
-Authoritative roadmap is [`../plan.md`](../plan.md). Phases: 0 Foundation & contracts →
+Authoritative roadmap is [`plan.md`](plan.md). Phases: 0 Foundation & contracts →
 1 Vertical slice (upload→seal→DNS-exfil→PDF) → 2 Parsing depth & remaining detectors →
 3 Evidence-integrity layer (the differentiator) → 4 Report, polish & demo.
 
@@ -90,6 +90,23 @@ solo. Loop was: Claude explains the concept + what's supposed to happen (plain
 language, no code) → user researches + writes it → user asks for help only if stuck.
 </details>
 
+## Collaboration model — refined 2026-08-23
+
+Same pairing-mode split as 2026-08-21 (plumbing direct, core logic teaching mode), but
+the `[CORE]` loop now gates writing to disk on approval, instead of drafting the file
+then reviewing it:
+
+explain decisions in plain language, jargon defined → show the complete code → user
+reads it line by line and approves → **only then** write the file → stop for next
+checkpoint.
+
+Full detail in [`../CLAUDE.md`](../CLAUDE.md) "Collaboration model" (source of truth);
+[`plan.md`](plan.md) ownership section carries the short summary. Also fixed broken
+`../plan.md` relative links across this file and `plan.md` (both live in `docs/`, so
+links needed to be `plan.md` / `../CLAUDE.md` not `../plan.md` / `CLAUDE.md`) and added
+`plan.md` to the doc table in `../CLAUDE.md` (it was missing despite being the build-order
+reference). No application code written this session.
+
 ## Open decisions / risks to resolve
 
 | # | Issue | Why it matters | Status |
@@ -100,6 +117,14 @@ language, no code) → user researches + writes it → user asks for help only i
 | 4 | **tshark on the demo laptop** | PyShark needs tshark installed; verify on the actual machine. Keep dpkt path independent. | OPEN — confirmed MISSING on this dev machine (`scripts/check_deps.py`). `brew install wireshark` before relying on PyShark; dpkt path unaffected. |
 | 5 | **Custody-log tamper-evidence mechanism** | Decide hash-chained entries (each references prior). Must be genuine, not cosmetic. | OPEN |
 
+- **2026-08-23** — Refined the pairing-mode `[CORE]` loop: explain decisions in plain
+  language (jargon defined) → show complete code → user reads line by line and approves
+  → only then write the file, replacing the 2026-08-21 version's "draft then review"
+  order. Updated `../CLAUDE.md` "Collaboration model" (source of truth) and `plan.md`
+  ownership section to match; added `plan.md` to `../CLAUDE.md`'s doc table (was
+  missing); fixed broken `../plan.md`/`CLAUDE.md` relative links in this file and
+  `plan.md` (both live in `docs/`, links pointed one directory too high). No application
+  code written this session.
 - **2026-08-21** — Collaboration model changed to **pairing mode** (see
   [`../CLAUDE.md`](../CLAUDE.md) "Collaboration model" and updated section above):
   Claude writes plumbing directly; core logic (detectors, evidence layer) goes back to
@@ -145,7 +170,7 @@ language, no code) → user researches + writes it → user asks for help only i
   Verified: full `requirements.txt` installs on Python 3.14.3 in `.venv/`. tshark
   confirmed MISSING (risk #4). Filled CLAUDE.md Commands. Repo on `main`, NOT committed —
   awaiting user. Next: Phase 1 vertical slice.
-- **2026-06-23** — Created [`../plan.md`](../plan.md): phased build roadmap with
+- **2026-06-23** — Created [`plan.md`](plan.md): phased build roadmap with
   `[CORE]`/`[INDEP]` ownership tags. Strategy locked: user owns all algorithmic code
   (parsing, detectors, evidence logic) with "Claude scaffolds stub+test → user
   implements"; Claude builds plumbing solo; vertical-slice-first build order. Added

@@ -33,6 +33,7 @@ current build state, what to do next, and open decisions.
 | [`docs/handoff.md`](docs/handoff.md) | **Living state** — current phase, done/next, open risks, session log. Read first. |
 | [`docs/architecture.md`](docs/architecture.md) | System structure — pipeline, stack, data flow, repo layout, dependency risks. |
 | [`docs/logic.md`](docs/logic.md) | Business rules — detector formulas/thresholds, evidence-layer mechanics, explainability contract. |
+| [`docs/plan.md`](docs/plan.md) | **Build order** — dependency-ordered phases/file list, `[CORE]`/`[INDEP]` ownership tags. |
 | `NetForensics_Solution_Document.docx` | Original source — full proposal. The docs above are extracted from it. |
 | `NetForensics_Flow_Diagram.pdf` | Original source — pipeline flow diagram. |
 
@@ -48,34 +49,49 @@ current build state, what to do next, and open decisions.
    reassembly, no ML). Shippable beats ambitious. New detectors plug in without
    touching the evidentiary core.
 
-## Collaboration model — pairing mode (2026-08-21)
+## Collaboration model — pairing mode (updated 2026-08-23)
 
 Two kinds of code, two ways of working:
 
 - **Plumbing** — FastAPI routes, SQLite schema, React components, PDF export. Claude
   writes it directly. User reviews the diff, no walkthrough needed.
 - **Core logic** — the four detectors and the evidence-integrity layer (BLAKE3 hashing,
-  RFC 3161 timestamps, append-only custody log). Teaching mode:
-  1. Draft **one function or module at a time** — small enough to read in one sitting.
-  2. Before writing it, briefly explain the approach and *why it works* (a few
-     sentences, not an essay) — e.g. why a JA3 hash is a usable fingerprint, why
-     beaconing shows up as timing periodicity, why hash-chaining makes a log
-     tamper-evident.
-  3. After drafting, **stop and let the user review** before starting the next piece.
-     Never chain multiple core-logic files together without a checkpoint.
-  4. If asked "why X instead of Y," answer by teaching — trade-offs, alternatives,
+  RFC 3161 timestamps, append-only custody log). Teaching mode, one function or module
+  at a time — small enough to read in one sitting — following this loop in order:
+
+  1. **Explain before any code exists.** In plain language, walk the decisions behind
+     the piece: what it does, why this approach and not an alternative, and why it
+     works. Define any jargon on first use (e.g. "Shannon entropy" = a measure of how
+     random a string looks; "hash chain" = each log entry embeds the previous entry's
+     hash so altering one breaks all the ones after it). This is not a one-liner — cover
+     enough that the reasoning, not just the conclusion, lands.
+  2. **Show the complete code** for that one function/module, in full — not a summary of
+     what it does. This is what gets read line by line, so it must be the real thing.
+  3. **Wait for explicit approval.** The user reads it line by line and approves before
+     anything is written to disk. Silence at a checkpoint is not approval — ping rather
+     than assume and continue.
+  4. **Only after approval, write the file.** Then stop. Never chain multiple
+     core-logic pieces together without a checkpoint in between.
+  5. If asked "why X instead of Y," answer by teaching — trade-offs, alternatives,
      failure modes — not just justifying the choice made.
-  5. Call out subtleties explicitly: hash collision edge cases, timestamp forgery
+  6. Call out subtleties explicitly: hash collision edge cases, timestamp forgery
      vectors, a detector's false-positive rate — whatever a real forensics tool would
      need to defend.
 
 **Don't:**
+- Write code to a file before step 3's approval — explanation and full code come first.
 - Dump a full detector or the evidence-chain implementation unprompted "to save time."
 - Apply teaching-mode depth to plumbing — save it for what matters.
 - Assume silence at a checkpoint means approval — ping instead of continuing.
 
+Build order for *what* gets built when: [`docs/plan.md`](docs/plan.md) (dependency-ordered
+phases, `[CORE]`/`[INDEP]` tags). This section governs *how* — the loop above applies to
+every `[CORE]` item there.
+
 This supersedes the earlier "user writes everything solo" model recorded in
-[`docs/handoff.md`](docs/handoff.md) (2026-07-16 entry, now historical).
+[`docs/handoff.md`](docs/handoff.md) (2026-07-16 entry, now historical), and refines the
+2026-08-21 version of this same pairing-mode section (that version drafted the file first
+and reviewed after; this version reviews in full *before* anything is written).
 
 ## Coding standards
 

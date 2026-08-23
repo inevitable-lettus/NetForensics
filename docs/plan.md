@@ -1,9 +1,9 @@
 # Build Plan — NetForensics
 
 The dependency-ordered roadmap for building NetForensics. This is the **static plan**;
-live progress is tracked in [`docs/handoff.md`](docs/handoff.md), not here. Design
-reference: [`docs/architecture.md`](docs/architecture.md) ·
-[`docs/logic.md`](docs/logic.md). Coding rules: [`CLAUDE.md`](CLAUDE.md).
+live progress is tracked in [`handoff.md`](handoff.md), not here. Design
+reference: [`architecture.md`](architecture.md) ·
+[`logic.md`](logic.md). Coding rules: [`../CLAUDE.md`](../CLAUDE.md).
 
 ---
 
@@ -12,27 +12,27 @@ reference: [`docs/architecture.md`](docs/architecture.md) ·
 Every work item below is tagged by owner:
 
 - **`[CORE]`** — all algorithmic code: parsing/feature-extraction, the four detectors, and
-  the evidence-integrity logic. **Pairing/teaching mode:** Claude drafts one function or
-  module at a time, briefly explains the approach *before* writing it, then stops for
-  user review before the next piece. No unprompted full-detector dumps, no chaining
-  multiple core files without a checkpoint.
+  the evidence-integrity logic. **Pairing/teaching mode**, one function/module at a
+  time: Claude explains the decisions in plain language (jargon defined) → shows the
+  complete code → user reads it line by line and approves → only then does Claude write
+  it to the file → stop for the next checkpoint. No unprompted full-detector dumps, no
+  chaining multiple core files together, no writing to disk before approval.
 - **`[INDEP]`** — pure plumbing: scaffold, FastAPI, SQLite/DAO, file storage, frontend,
   PDF, test harness. **Claude writes these directly**, user reviews the diff.
 
-**The loop for every `[CORE]` item:** Claude explains the approach in a few sentences →
-drafts the piece → stops → user reviews (asks "why X not Y" freely — answer by
-teaching trade-offs/failure modes) → next piece only after checkpoint clears.
+Full loop detail (including how to answer "why X not Y" and what subtleties to call out)
+lives in [`../CLAUDE.md`](../CLAUDE.md) "Collaboration model" — this is the summary, that
+is the source of truth.
 
 **Parallelism:** while a `[CORE]` item is mid-checkpoint, Claude can build the next
 phase's `[INDEP]` plumbing. Phase N core work and Phase N+1 plumbing can overlap.
 
-> **Current model — 2026-08-21 (pairing mode)**, see [`handoff.md`](handoff.md)
-> "Collaboration model" and [`../CLAUDE.md`](../CLAUDE.md). This restores the
-> `[CORE]`/`[INDEP]` split above as the working model (superseding the 2026-07-16
-> "user writes everything solo" phase, itself now historical). Phase order and file
-> list below are unchanged throughout.
+> **Current model — updated 2026-08-23 (pairing mode)**, see [`handoff.md`](handoff.md)
+> "Collaboration model" and [`../CLAUDE.md`](../CLAUDE.md). Refines the 2026-08-21
+> version: code now gets explained and shown in full *before* it's written to disk,
+> not drafted-then-reviewed. Phase order and file list below are unchanged.
 
-All work follows the [`CLAUDE.md`](CLAUDE.md) coding standards: functions ≤50–60 lines,
+All work follows the [`../CLAUDE.md`](../CLAUDE.md) coding standards: functions ≤50–60 lines,
 the shared `Detector` interface, one source of truth for thresholds, strict separation of
 concerns (parsing never touches the DB, detectors never touch HTTP).
 
