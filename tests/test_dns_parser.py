@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import dpkt
 
-from backend.parse.dns_parser import _iter_dns_queries, _split_domain
+from backend.parse.dns_parser import (
+    _build_dns_flow,
+    _group_dns_queries,
+    _iter_dns_queries,
+    _split_domain,
+    parse_dns_flows,
+)
 from tests.fixtures.pcap_builder import write_minimal_pcap
 
 
@@ -52,11 +59,15 @@ def test_split_domain_known_limitation_multi_part_tld():
 
 
 def test_iter_dns_queries_extracts_query(tmp_pcap: Path):
-    write_minimal_pcap(tmp_pcap, [_dns_query_packet("evil.example.com", src_ip="10.0.0.5")])
+    write_minimal_pcap(
+        tmp_pcap,
+        [_dns_query_packet("evil.example.com", src_ip="10.0.0.5", dst_ip="8.8.8.8")],
+    )
     results = list(_iter_dns_queries(str(tmp_pcap)))
     assert len(results) == 1
-    _, src_ip, qname = results[0]
+    _, src_ip, dst_ip, qname = results[0]
     assert src_ip == "10.0.0.5"
+    assert dst_ip == "8.8.8.8"
     assert qname == "evil.example.com"
 
 
@@ -86,7 +97,63 @@ def test_iter_dns_queries_multiple_packets(tmp_pcap: Path):
     ]
     write_minimal_pcap(tmp_pcap, packets)
     results = list(_iter_dns_queries(str(tmp_pcap)))
-    assert [(r[1], r[2]) for r in results] == [
+    assert [(r[1], r[3]) for r in results] == [
         ("10.0.0.5", "a.evil.com"),
         ("10.0.0.6", "b.evil.com"),
     ]
+
+
+def test_group_dns_queries_buckets_by_src_and_parent():
+    t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    records = [
+        (t0, "10.0.0.5", "8.8.8.8", "a1.evil.com"),
+        (t0, "10.0.0.5", "8.8.8.8", "a2.evil.com"),
+        (t0, "10.0.0.5", "8.8.8.8", "b.benign.com"),
+        (t0, "10.0.0.6", "8.8.8.8", "c1.evil.com"),
+    ]
+    groups = _group_dns_queries(records)
+    assert set(groups.keys()) == {
+        ("10.0.0.5", "evil.com"),
+        ("10.0.0.5", "benign.com"),
+        ("10.0.0.6", "evil.com"),
+    }
+    assert len(groups[("10.0.0.5", "evil.com")]) == 2
+
+
+def test_build_dns_flow_computes_entropy_and_length_from_subdomains():
+    t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+    t1 = datetime(2026, 1, 1, 0, 0, 5, tzinfo=timezone.utc)
+    entries = [(t0, "8.8.8.8", "ab"), (t1, "8.8.8.8", "abcd")]
+    flow = _build_dns_flow("10.0.0.5", "evil.com", entries)
+    assert flow.src_ip == "10.0.0.5"
+    assert flow.dst_ip == "8.8.8.8"
+    assert flow.start_time == t0
+    assert flow.end_time == t1
+    assert flow.features.dns.parent_domain == "evil.com"
+    assert flow.features.dns.query_count == 2
+    assert flow.features.dns.max_subdomain_length == 4
+    assert flow.features.dns.subdomains == ("ab", "abcd")
+
+
+def test_build_dns_flow_apex_only_queries_have_zero_entropy_and_length():
+    t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    entries = [(t0, "8.8.8.8", "")]
+    flow = _build_dns_flow("10.0.0.5", "example.com", entries)
+    assert flow.features.dns.query_count == 1
+    assert flow.features.dns.max_subdomain_entropy == 0.0
+    assert flow.features.dns.max_subdomain_length == 0
+    assert flow.features.dns.subdomains == ()
+
+
+def test_parse_dns_flows_end_to_end(tmp_pcap: Path):
+    packets = [
+        _dns_query_packet("a8f3k2z9.evil.com", src_ip="10.0.0.5"),
+        _dns_query_packet("b7c1m4x2.evil.com", src_ip="10.0.0.5"),
+        _dns_query_packet("mail.benign.com", src_ip="10.0.0.6"),
+    ]
+    write_minimal_pcap(tmp_pcap, packets)
+    flows = parse_dns_flows(str(tmp_pcap))
+    assert len(flows) == 2
+    evil_flow = next(f for f in flows if f.features.dns.parent_domain == "evil.com")
+    assert evil_flow.src_ip == "10.0.0.5"
+    assert evil_flow.features.dns.query_count == 2

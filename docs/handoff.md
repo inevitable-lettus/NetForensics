@@ -8,11 +8,11 @@ holds where the build is, what to do next, and unresolved decisions. For the des
 
 ## Current phase
 
-**Phase 0 complete.** Phase 1 vertical slice underway — DNS-exfil detector drafted,
-dpkt DNS parser drafted (helpers only, grouping into Flow/DnsFeatures still open),
-entropy now tested. Test suite green (33 passed). Next concrete work: finish
-`dns_parser.py` (group parsed queries into `Flow`+`DnsFeatures` per
-(src_ip, parent_domain)) so it plugs into the DNS-exfil detector end-to-end.
+**Phase 0 complete.** Phase 1 vertical slice: pcap → DNS parse → DNS-exfil detector
+is now wired end-to-end (`parse_dns_flows()` output type-matches
+`DnsExfilDetector.run`). Test suite green (37 passed). Next concrete work: upload
+endpoint + pipeline orchestrator to actually drive this slice from a real pcap file,
+or move to the next core-logic piece (C2 beaconing detector / evidence layer).
 
 ## Done so far
 
@@ -56,11 +56,11 @@ Per [`../plan.md`](../plan.md) file/phase order; ownership tags superseded — s
       flagged for review: severity is `HIGH` only when *both* length and rate
       corroborate entropy, `MEDIUM` if just one — confirm that split is wanted.
 - [x] `backend/parse/entropy.py` unit tests (`tests/test_entropy.py`, 5 cases).
-- [~] dpkt bulk parse → DNS flows (`backend/parse/dns_parser.py`) — helpers drafted
-      and tested (`_iter_dns_queries`, `_split_domain`), grouping into
-      `Flow`/`DnsFeatures` still open. — **NEXT UP.**
+- [x] dpkt bulk parse → DNS flows (`backend/parse/dns_parser.py`) — `parse_dns_flows()`
+      end-to-end: `_iter_dns_queries` → `_group_dns_queries` → `_build_dns_flow`.
+      Feeds `DnsExfilDetector.run` directly (`list[Flow]`). 15 tests total.
 - [ ] Upload endpoint + file storage; SQLite seal table + DAO; pipeline orchestrator;
-      minimal PDF; minimal React upload/results page.
+      minimal PDF; minimal React upload/results page. — **NEXT UP.**
 
 ### Phase 0 — done
 
@@ -119,6 +119,24 @@ language, no code) → user researches + writes it → user asks for help only i
 | 4 | **tshark on the demo laptop** | PyShark needs tshark installed; verify on the actual machine. Keep dpkt path independent. | OPEN — confirmed MISSING on this dev machine (`scripts/check_deps.py`). `brew install wireshark` before relying on PyShark; dpkt path unaffected. |
 | 5 | **Custody-log tamper-evidence mechanism** | Decide hash-chained entries (each references prior). Must be genuine, not cosmetic. | OPEN |
 
+- **2026-08-27 (cont.)** — Finished `backend/parse/dns_parser.py`: added `dst_ip` to
+  `_iter_dns_queries`'s yield (needed for `Flow.dst_ip`, was missing before), then
+  `_group_dns_queries` (buckets records by (src_ip, parent_domain)) and
+  `_build_dns_flow` (one group → one `Flow`, with `DnsFeatures.max_subdomain_entropy`/
+  `max_subdomain_length` computed via `shannon_entropy`, apex queries — empty-string
+  subdomain — excluded from entropy/length but still counted in `query_count`), and
+  `parse_dns_flows()` composing all three. Documented two deliberate sentinels:
+  `Flow.src_port=0` and `dst_ip` = first query's resolver in the group — neither is
+  read by `DnsExfilDetector`, since a DNS "flow" here is an aggregate across many real
+  query/response pairs, not one 5-tuple connection. Verified `parse_dns_flows()`'s
+  `list[Flow]` output type-matches `DnsExfilDetector.run` directly — **vertical slice
+  (pcap → DNS parse → DNS-exfil finding) is wired end-to-end**, just not yet driven by
+  a real orchestrator/CLI. Added 6 new tests to `tests/test_dns_parser.py` (grouping,
+  flow-building, apex-only edge case, full end-to-end). Full suite: **37 passed**. User
+  committed+pushed the prior state (entropy test + parser helpers) before this piece.
+  Next: upload endpoint + pipeline orchestrator to drive this from a real pcap, or
+  start the C2 beaconing detector. Open item carried forward: confirm DNS-exfil
+  HIGH-severity split (both signals vs. either) before moving on.
 - **2026-08-27** — Closed testing gap flagged 2026-08-25: `backend/parse/entropy.py`
   had no unit test — added `tests/test_entropy.py` (empty string, uniform-repeat,
   known 1-bit/2-bit values, random-like-vs-benign sanity check). Also cleaned trailing
