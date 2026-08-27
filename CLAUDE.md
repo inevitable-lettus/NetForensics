@@ -48,7 +48,7 @@ current build state, what to do next, and open decisions.
    reassembly, no ML). Shippable beats ambitious. New detectors plug in without
    touching the evidentiary core.
 
-## Collaboration model — pairing mode (2026-08-21)
+## Collaboration model — pairing mode (2026-08-25)
 
 Two kinds of code, two ways of working:
 
@@ -57,10 +57,12 @@ Two kinds of code, two ways of working:
 - **Core logic** — the four detectors and the evidence-integrity layer (BLAKE3 hashing,
   RFC 3161 timestamps, append-only custody log). Teaching mode:
   1. Draft **one function or module at a time** — small enough to read in one sitting.
-  2. Before writing it, briefly explain the approach and *why it works* (a few
-     sentences, not an essay) — e.g. why a JA3 hash is a usable fingerprint, why
-     beaconing shows up as timing periodicity, why hash-chaining makes a log
-     tamper-evident.
+  2. **Before writing a single line, explain the code in detail — line by line** —
+     what each line/statement will do and *why*, not just a one-paragraph approach
+     summary. The explanation comes first; the code is written only after that
+     walkthrough, not drafted-then-explained-after. E.g. walk each line of a JA3
+     hash construction, each branch of a beaconing periodicity check, each step of a
+     hash-chain link — before any of it hits the file.
   3. After drafting, **stop and let the user review** before starting the next piece.
      Never chain multiple core-logic files together without a checkpoint.
   4. If asked "why X instead of Y," answer by teaching — trade-offs, alternatives,
@@ -71,6 +73,8 @@ Two kinds of code, two ways of working:
 
 **Don't:**
 - Dump a full detector or the evidence-chain implementation unprompted "to save time."
+- Write code first and explain it afterward — explanation is a pre-write step, not a
+  post-hoc caption.
 - Apply teaching-mode depth to plumbing — save it for what matters.
 - Assume silence at a checkpoint means approval — ping instead of continuing.
 

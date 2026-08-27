@@ -15,6 +15,3 @@ def shannon_entropy(text: str) -> float:
         H -= p * math.log2(p)
 
     return H
-
-
-    

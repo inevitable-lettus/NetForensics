@@ -8,8 +8,11 @@ holds where the build is, what to do next, and unresolved decisions. For the des
 
 ## Current phase
 
-**Phase 0 complete.** Scaffold + contracts in place, test suite green (8 passed),
-deps install on Python 3.14. Next concrete work is **Phase 1 — vertical slice**.
+**Phase 0 complete.** Phase 1 vertical slice underway — DNS-exfil detector drafted,
+dpkt DNS parser drafted (helpers only, grouping into Flow/DnsFeatures still open),
+entropy now tested. Test suite green (33 passed). Next concrete work: finish
+`dns_parser.py` (group parsed queries into `Flow`+`DnsFeatures` per
+(src_ip, parent_domain)) so it plugs into the DNS-exfil detector end-to-end.
 
 ## Done so far
 
@@ -21,6 +24,20 @@ deps install on Python 3.14. Next concrete work is **Phase 1 — vertical slice*
   ownership tags. — 2026-06-23
 - **Phase 0 scaffold** — repo layout, shared models, detector interface, config,
   test harness, dep-check. — 2026-06-25
+- **DNS-exfil detector** (`backend/detectors/dns_exfil.py`) — `_is_allowlisted`,
+  `_query_rate`, `_longest_subdomain`, `DnsExfilDetector.run/_evaluate/_build_finding`.
+  10 tests in `tests/test_dns_exfil.py`. — 2026-08-25
+- **`backend/parse/entropy.py`** (`shannon_entropy`) — now covered by
+  `tests/test_entropy.py` (5 cases: empty string, uniform-repeat zero, 1-bit/2-bit
+  known values, random-like > low-entropy sanity check). — 2026-08-27
+- **`backend/parse/dns_parser.py`** (plumbing, Claude-direct per pairing-mode split) —
+  `_iter_dns_queries` (single-pass dpkt walk, UDP/53 only, skips malformed/non-DNS
+  packets) and `_split_domain` (naive last-two-labels heuristic, documented
+  multi-part-TLD limitation e.g. `co.uk`). 9 tests in `tests/test_dns_parser.py`.
+  **Not yet wired to `Flow`/`DnsFeatures`** — no top-level function groups queries by
+  (src_ip, parent_domain) yet, so it doesn't feed the DNS-exfil detector end-to-end.
+  Untracked, uncommitted. — 2026-08-27
+- Full suite: **33 passed.**
 
 ## Next up (Phase 1 — Vertical slice)
 
@@ -33,13 +50,15 @@ Per [`../plan.md`](../plan.md) file/phase order; ownership tags superseded — s
       Untracked, not yet committed.
 - [x] `backend/parse/entropy.py` — `shannon_entropy(text) -> float`, bits/char via
       `Counter` + `-Σp·log2(p)`. Untracked, not yet committed. No unit test yet.
-- [ ] **DNS-exfil detector (`backend/detectors/dns_exfil.py`) — in progress.** Concepts +
-      Python syntax explained and written up in
-      [`notes/dns-exfil-detector.md`](notes/dns-exfil-detector.md). Now the first
-      pairing-mode core-logic item per the updated collaboration model — draft one
-      piece, explain, checkpoint. Testable now against `dns_flow()` fixtures — does NOT
-      need the parser first. `entropy.py` above is its dependency.
-- [ ] dpkt bulk parse → DNS flows (`backend/parse/dns_parser.py`).
+- [x] **DNS-exfil detector (`backend/detectors/dns_exfil.py`) — drafted, pending
+      user review.** Built piece-by-piece per pairing mode: `_is_allowlisted` →
+      `_query_rate` → `run`/`_evaluate`/`_build_finding`. 10 tests pass. Open call
+      flagged for review: severity is `HIGH` only when *both* length and rate
+      corroborate entropy, `MEDIUM` if just one — confirm that split is wanted.
+- [x] `backend/parse/entropy.py` unit tests (`tests/test_entropy.py`, 5 cases).
+- [~] dpkt bulk parse → DNS flows (`backend/parse/dns_parser.py`) — helpers drafted
+      and tested (`_iter_dns_queries`, `_split_domain`), grouping into
+      `Flow`/`DnsFeatures` still open. — **NEXT UP.**
 - [ ] Upload endpoint + file storage; SQLite seal table + DAO; pipeline orchestrator;
       minimal PDF; minimal React upload/results page.
 
@@ -100,6 +119,31 @@ language, no code) → user researches + writes it → user asks for help only i
 | 4 | **tshark on the demo laptop** | PyShark needs tshark installed; verify on the actual machine. Keep dpkt path independent. | OPEN — confirmed MISSING on this dev machine (`scripts/check_deps.py`). `brew install wireshark` before relying on PyShark; dpkt path unaffected. |
 | 5 | **Custody-log tamper-evidence mechanism** | Decide hash-chained entries (each references prior). Must be genuine, not cosmetic. | OPEN |
 
+- **2026-08-27** — Closed testing gap flagged 2026-08-25: `backend/parse/entropy.py`
+  had no unit test — added `tests/test_entropy.py` (empty string, uniform-repeat,
+  known 1-bit/2-bit values, random-like-vs-benign sanity check). Also cleaned trailing
+  dead blank lines in `entropy.py`. Confirmed `backend/parse/dns_parser.py` (untracked)
+  is further along than this file previously recorded: `_iter_dns_queries` +
+  `_split_domain` drafted and covered by 9 tests, but the grouping step that turns
+  parsed queries into `Flow`/`DnsFeatures` (per (src_ip, parent_domain), per the
+  module docstring) is not written yet — parser doesn't feed the DNS-exfil detector
+  end-to-end. Full suite now **33 passed**. Nothing committed this session — `dns_exfil.py`,
+  `dns_parser.py`, `test_dns_exfil.py`, `test_dns_parser.py`, `test_entropy.py` all
+  still untracked. Open item carried forward: confirm DNS-exfil HIGH-severity split
+  (both signals vs. either) before moving on. Next: finish `dns_parser.py` grouping
+  function, then commit the DNS-exfil vertical slice as a unit.
+- **2026-08-25** — Drafted `backend/detectors/dns_exfil.py` end-to-end in pairing mode:
+  `_is_allowlisted` (dot-anchored suffix match, checkpoint+tested), `_query_rate`
+  (normalizes count to per-window rate, zero-duration guard, checkpoint+tested), then
+  `DnsExfilDetector.run`/`_evaluate`/`_build_finding` (entropy required + length-or-rate
+  corroboration, HIGH only when both corroborate). 10 tests added
+  (`tests/test_dns_exfil.py`); full suite 20 passed. Mid-session the user changed the
+  teaching-mode workflow: explain code **line by line before writing it**, not a brief
+  approach summary beforehand with detail after — `CLAUDE.md` "Collaboration model"
+  updated to require this going forward (applies to remaining core-logic pieces: the
+  parser is plumbing/Claude-direct, but the C2/port-scan/JA3 detectors and the
+  evidence-integrity layer are core logic and fall under the new rule). Open item:
+  confirm the HIGH-severity split (both signals vs. either) before moving on.
 - **2026-08-21** — Collaboration model changed to **pairing mode** (see
   [`../CLAUDE.md`](../CLAUDE.md) "Collaboration model" and updated section above):
   Claude writes plumbing directly; core logic (detectors, evidence layer) goes back to
