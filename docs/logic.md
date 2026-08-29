@@ -73,14 +73,36 @@ Each is a transparent rule, not a model.
   exfiltrated over DNS."*
 
 ### 2. C2 beaconing
-- **Method:** Inter-arrival-time regularity of connections to a destination.
-- **Signal:** Malware beacons at near-fixed intervals; humans do not produce robotically
-  regular check-ins.
-- **Threshold / baseline:** Low variance / jitter in inter-arrival times over N
-  connections → beacon. Exact regularity metric + cutoff **(proposed / to confirm:
-  e.g. coefficient of variation below a threshold)**.
+- **Method:** Group connections by `(src_ip, dst_ip)` — destination port ignored, so a
+  beacon that rotates ports is still caught. Within a group, compute inter-arrival
+  times (gaps between consecutive connections, chronologically sorted), then the
+  **coefficient of variation**: `sample_stdev(IATs) / mean(IATs)`. Sample (not
+  population) stdev, since we're estimating regularity from a limited observation
+  window, not the host's full lifetime behavior.
+- **Signal:** Malware beacons at near-fixed intervals (CV near 0); humans do not
+  produce robotically regular check-ins (CV typically well above 1).
+- **Threshold / baseline:** Fires when `connection_count >= min_connections` (10,
+  **proposed**) **and** `CV <= max_coefficient_of_variation` (0.1, **proposed**) — both
+  in `Config.c2_beacon`. Below `min_connections`, regularity isn't statistically
+  meaningful yet, so the group is skipped before any CV math runs.
+- **Edge cases (decided):** A group with a zero-mean IAT (all connections landed at the
+  identical timestamp — a pcap timestamp-resolution artifact, not a real signal) is
+  treated as **not computable** and skipped, not flagged. `dst_ip` allowlist
+  (`Allowlists.beacon_dst_ips`) checked before any stats work, for known-legitimate
+  heartbeats.
+- **Severity:** Always `MEDIUM` — **open decision**. Unlike DNS-exfil (entropy +
+  length/rate corroboration → HIGH), this detector has one signal (CV), so there is no
+  second axis to corroborate against without inventing an unconfigured cutoff.
+  Candidate second axis if a HIGH tier is wanted: connection count well above
+  `min_connections` strengthens the statistical claim — would need its own named
+  config field, not a hardcoded fraction.
+- **Known limitation:** Adaptive C2 (e.g. operator-tunable jitter) can push CV above
+  the threshold deliberately to evade this exact check — this catches the common case
+  honestly, not adaptive adversaries. The evidence string states exact numbers so a
+  human analyst can still judge borderline cases.
 - **Evidence string (example):** *"Host `<src>` contacted `<dst>` every ~60s (±2s) over
-  45 connections — robotic regularity characteristic of C2 beaconing, not human traffic."*
+  45 connections (coefficient of variation 0.033, threshold 0.1) — robotic regularity
+  characteristic of C2 beaconing, not human traffic."*
 
 ### 3. Port scan / reconnaissance
 - **Method:** Fan-out analysis — one source touching many ports/hosts within a time

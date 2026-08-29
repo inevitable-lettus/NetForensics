@@ -8,11 +8,11 @@ holds where the build is, what to do next, and unresolved decisions. For the des
 
 ## Current phase
 
-**Phase 0 complete.** Phase 1 vertical slice: pcap → DNS parse → DNS-exfil detector
-is now wired end-to-end (`parse_dns_flows()` output type-matches
-`DnsExfilDetector.run`). Test suite green (37 passed). Next concrete work: upload
-endpoint + pipeline orchestrator to actually drive this slice from a real pcap file,
-or move to the next core-logic piece (C2 beaconing detector / evidence layer).
+**Phase 0 complete.** Phase 1 vertical slice (DNS path) wired end-to-end. Phase 2
+underway — **C2-beaconing detector drafted and tested** (2nd of 4 detectors). Test
+suite green (51 passed). Next concrete work: port-scan detector or JA3 fingerprinting
+(remaining detectors), or upload endpoint + pipeline orchestrator to drive the DNS
+slice from a real pcap file.
 
 ## Done so far
 
@@ -31,13 +31,20 @@ or move to the next core-logic piece (C2 beaconing detector / evidence layer).
   `tests/test_entropy.py` (5 cases: empty string, uniform-repeat zero, 1-bit/2-bit
   known values, random-like > low-entropy sanity check). — 2026-08-27
 - **`backend/parse/dns_parser.py`** (plumbing, Claude-direct per pairing-mode split) —
-  `_iter_dns_queries` (single-pass dpkt walk, UDP/53 only, skips malformed/non-DNS
-  packets) and `_split_domain` (naive last-two-labels heuristic, documented
-  multi-part-TLD limitation e.g. `co.uk`). 9 tests in `tests/test_dns_parser.py`.
-  **Not yet wired to `Flow`/`DnsFeatures`** — no top-level function groups queries by
-  (src_ip, parent_domain) yet, so it doesn't feed the DNS-exfil detector end-to-end.
-  Untracked, uncommitted. — 2026-08-27
-- Full suite: **33 passed.**
+  `_iter_dns_queries`, `_split_domain`, `_group_dns_queries`, `_build_dns_flow`,
+  `parse_dns_flows()`. Full DNS pcap → `Flow`/`DnsFeatures` pipeline, output
+  type-matches `DnsExfilDetector.run` directly. 15 tests in `tests/test_dns_parser.py`.
+- **C2-beaconing detector** (`backend/detectors/c2_beacon.py`, core logic, pairing
+  mode) — `_group_by_src_dst` (buckets by (src_ip, dst_ip), port ignored),
+  `_inter_arrival_times` (sorts timestamps, diffs consecutive pairs),
+  `_coefficient_of_variation` (sample stdev / mean; `None` on <2 gaps or zero-mean —
+  both structurally guarded, not exception-caught), `C2BeaconDetector.run/_evaluate/
+  _build_finding`. 14 tests in `tests/test_c2_beacon.py`, including a hand-verified
+  worked example (CV ≈ 0.0281 for a 10-connection ~60s beacon) and a human-irregular
+  contrast case (CV > 1). Open call flagged for review: `severity` is always `MEDIUM`
+  — no second signal to corroborate against for a HIGH tier without inventing an
+  unconfigured cutoff (see `docs/logic.md` §2). — 2026-08-29
+- Full suite: **51 passed.**
 
 ## Next up (Phase 1 — Vertical slice)
 
@@ -59,8 +66,16 @@ Per [`../plan.md`](../plan.md) file/phase order; ownership tags superseded — s
 - [x] dpkt bulk parse → DNS flows (`backend/parse/dns_parser.py`) — `parse_dns_flows()`
       end-to-end: `_iter_dns_queries` → `_group_dns_queries` → `_build_dns_flow`.
       Feeds `DnsExfilDetector.run` directly (`list[Flow]`). 15 tests total.
+- [x] **C2-beaconing detector (`backend/detectors/c2_beacon.py`) — drafted, pending
+      user review.** Built piece-by-piece per pairing mode with full line-by-line
+      explain-before-write at every step. 14 tests pass. Open call flagged: always
+      `MEDIUM` severity (no second corroborating signal) — confirm or supply a named
+      second-axis config field if a HIGH tier is wanted.
+- [ ] Port-scan detector (fan-out: distinct ports/hosts per source in a window) or
+      JA3 fingerprinting (hash + SSLBL match) — remaining two of four detectors.
 - [ ] Upload endpoint + file storage; SQLite seal table + DAO; pipeline orchestrator;
-      minimal PDF; minimal React upload/results page. — **NEXT UP.**
+      minimal PDF; minimal React upload/results page. — **NEXT UP** (either this or a
+      remaining detector).
 
 ### Phase 0 — done
 
@@ -119,6 +134,25 @@ language, no code) → user researches + writes it → user asks for help only i
 | 4 | **tshark on the demo laptop** | PyShark needs tshark installed; verify on the actual machine. Keep dpkt path independent. | OPEN — confirmed MISSING on this dev machine (`scripts/check_deps.py`). `brew install wireshark` before relying on PyShark; dpkt path unaffected. |
 | 5 | **Custody-log tamper-evidence mechanism** | Decide hash-chained entries (each references prior). Must be genuine, not cosmetic. | OPEN |
 
+- **2026-08-29** — Built `backend/detectors/c2_beacon.py` end-to-end in pairing mode,
+  full teaching sequence: plain-language concept explanation first (C2, beaconing,
+  IAT, jitter, CV, sample-size problem — with a worked numeric example and a
+  human-traffic contrast), then per-function line-by-line explain-before-write at
+  each of four checkpoints: `_group_by_src_dst` → `_inter_arrival_times` +
+  `_coefficient_of_variation` → `run`/`_evaluate`/`_build_finding`. Two design calls
+  made explicit rather than decided silently: group key is `(src_ip, dst_ip)` only
+  (port ignored, so port-rotating beacons are still caught), and a zero-mean IAT
+  group is skipped as "not computable" rather than guessed at. 14 tests added
+  (`tests/test_c2_beacon.py`), including hand-verified expected values for the CV
+  formula itself (not just circular self-checks). Full suite: **51 passed**. Updated
+  `docs/logic.md` §2 to match the now-decided mechanism (was previously "proposed /
+  to confirm" at a vaguer level) — threshold *values* (10, 0.1) still marked
+  proposed/untuned, but the formula, grouping key, and edge-case handling are now
+  fixed. Open item carried forward: `severity` always `MEDIUM`, flagged for review —
+  no second corroborating signal exists for this detector the way DNS-exfil has
+  entropy+length/rate. Nothing committed this session. Next: port-scan or JA3
+  detector, or start the upload/orchestrator plumbing to drive the DNS slice
+  end-to-end from a real file.
 - **2026-08-27 (cont.)** — Finished `backend/parse/dns_parser.py`: added `dst_ip` to
   `_iter_dns_queries`'s yield (needed for `Flow.dst_ip`, was missing before), then
   `_group_dns_queries` (buckets records by (src_ip, parent_domain)) and
