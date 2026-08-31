@@ -62,7 +62,7 @@ a mismatch flags broken chain of custody (see [`logic.md`](logic.md)).
 ## Proposed repo layout (proposed / to confirm)
 
 ```
-cybersec_hackathon/
+NetForensics/
 ├── CLAUDE.md
 ├── docs/                  architecture.md · logic.md · handoff.md
 ├── backend/               (proposed)
@@ -84,7 +84,7 @@ evidentiary core (Hard Rule 4).
 
 | Dependency | Risk | Mitigation direction |
 |---|---|---|
-| **tshark** (PyShark backend) | Must be installed on the demo machine; missing/old tshark breaks Stage 2. | Verify on the actual demo laptop; keep dpkt path working independently of PyShark. |
-| **RFC 3161 TSA** | Needs a live external Timestamp Authority — **will fail on flaky demo-day wifi**, killing the headline feature. | Choose a TSA (e.g. freeTSA.org) **and** build an offline/cached fallback so the demo never hard-fails. Open risk in [`handoff.md`](handoff.md). |
-| **abuse.ch SSLBL feed** | JA3 hits are rare in random pcaps; feed must be fetched/cached. | Curate demo pcaps with a known SSLBL match; cache the blocklist locally. |
+| **tshark** (PyShark backend) | Must be installed on whichever machine runs the PyShark path; missing/old tshark breaks Stage 2. | Verify availability early (`scripts/check_deps.py`); keep dpkt path working independently of PyShark. |
+| **RFC 3161 TSA** | Needs a live external Timestamp Authority — **will fail with no/flaky internet**, killing the headline feature. | Choose a TSA (e.g. freeTSA.org) **and** build an offline/cached fallback so sealing never hard-fails. Open risk in [`handoff.md`](handoff.md). |
+| **abuse.ch SSLBL feed** | JA3 hits are rare in random pcaps; feed must be fetched/cached. | Curate sample pcaps with a known SSLBL match; cache the blocklist locally. |
 | **Encrypted traffic (TLS/DoH)** | Hides payloads — limits inspection by design. | Detectors use metadata only (timing, plaintext-DNS entropy, handshake fingerprints). Scope this honestly; do not overclaim. |

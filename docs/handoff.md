@@ -128,10 +128,10 @@ language, no code) → user researches + writes it → user asks for help only i
 
 | # | Issue | Why it matters | Status |
 |---|---|---|---|
-| 1 | **RFC 3161 TSA choice + offline fallback** | Live TSA will fail on demo-day wifi and kill the headline feature. Pick a TSA (e.g. freeTSA.org) and cache/fallback so it never hard-fails. | OPEN |
-| 2 | **Curate demo pcaps so all 4 detectors fire** | A demo where TLS/SSLBL shows zero hits is weak. Hand-pick captures from malware-traffic-analysis.net per detector. | OPEN |
-| 3 | **"Court-admissible" wording** | Overclaiming invites a brutal judge question. Reframe toward "evidentiary integrity / tamper-evident, designed toward admissibility." Prove tamper-evidence live instead. | OPEN |
-| 4 | **tshark on the demo laptop** | PyShark needs tshark installed; verify on the actual machine. Keep dpkt path independent. | OPEN — confirmed MISSING on this dev machine (`scripts/check_deps.py`). `brew install wireshark` before relying on PyShark; dpkt path unaffected. |
+| 1 | **RFC 3161 TSA choice + offline fallback** | A live TSA needs internet and can fail, which would kill the headline feature. Pick a TSA (e.g. freeTSA.org) and cache/fallback so it never hard-fails. | OPEN |
+| 2 | **Curate sample pcaps so all 4 detectors fire** | A walkthrough where TLS/SSLBL shows zero hits is weak. Hand-pick captures from malware-traffic-analysis.net per detector. | OPEN |
+| 3 | **"Court-admissible" wording** | Overclaiming invites a brutal "prove it" question. Reframe toward "evidentiary integrity / tamper-evident, designed toward admissibility." Prove tamper-evidence live instead. | OPEN |
+| 4 | **tshark on the dev machine** | PyShark needs tshark installed; verify on the actual machine. Keep dpkt path independent. | OPEN — confirmed MISSING on this dev machine (`scripts/check_deps.py`). `brew install wireshark` before relying on PyShark; dpkt path unaffected. |
 | 5 | **Custody-log tamper-evidence mechanism** | Decide hash-chained entries (each references prior). Must be genuine, not cosmetic. | OPEN |
 
 - **2026-08-29** — Built `backend/detectors/c2_beacon.py` end-to-end in pairing mode,

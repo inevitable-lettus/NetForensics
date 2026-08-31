@@ -134,7 +134,7 @@ report.
 1. RFC 3161 TSA choice + offline fallback — addressed in Phase 3.
 2. Curate demo pcaps so all four detectors fire — addressed in Phases 2 & 4.
 3. "Court-admissible" wording → reframe toward "evidentiary integrity / tamper-evident."
-4. tshark installed on the demo laptop — verify early (Phase 0 dependency check).
+4. tshark installed on the machine running the tool — verify early (Phase 0 dependency check).
 
 **Build order rationale:** shared models/interfaces (Phase 0) precede all
 implementations; parsing precedes detectors; detectors precede the evidence layer and

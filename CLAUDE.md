@@ -5,9 +5,8 @@ runs four transparent detectors (DNS exfil, C2 beaconing, port scan, JA3 fingerp
 and wraps results in a **court-admissible evidence layer** (BLAKE3 hash + RFC 3161
 trusted timestamp + append-only chain of custody → forensic PDF report).
 
-Personal project — no deadline. Point is learning the security concepts, not just
-shipping. Built originally for **KANAD S.H.I.E.L.D. 2026** (Ahmedabad City Police
-Cybersecurity Innovation Challenge) · Category 2 · Problem ID `KANADSHIELD26_P2_08`.
+Personal portfolio project — no deadline. Point is learning the security concepts and
+building something demonstrably solid, not just shipping fast.
 
 **The differentiator is the evidence-integrity layer, not the detection.** Zeek/Suricata
 already detect these patterns; nobody else seals the evidence and proves to a court it
@@ -33,8 +32,9 @@ current build state, what to do next, and open decisions.
 | [`docs/handoff.md`](docs/handoff.md) | **Living state** — current phase, done/next, open risks, session log. Read first. |
 | [`docs/architecture.md`](docs/architecture.md) | System structure — pipeline, stack, data flow, repo layout, dependency risks. |
 | [`docs/logic.md`](docs/logic.md) | Business rules — detector formulas/thresholds, evidence-layer mechanics, explainability contract. |
-| `NetForensics_Solution_Document.docx` | Original source — full proposal. The docs above are extracted from it. |
-| `NetForensics_Flow_Diagram.pdf` | Original source — pipeline flow diagram. |
+
+The earliest proposal draft and a flow diagram exist locally (git-ignored, not published)
+as historical source material — the docs above are the authoritative, extracted versions.
 
 ## Hard rules
 

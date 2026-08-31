@@ -39,15 +39,15 @@ This is the real product. Make tamper-evidence *genuine*, not cosmetic.
   breaking every subsequent link. **(mechanism proposed / to confirm: hash-chained entries)**
 - The log is append-only: no in-place edits, no deletes.
 
-### Integrity verification (the demo-winning flow)
+### Integrity verification (the headline flow)
 1. Re-hash the stored pcap with BLAKE3.
 2. Compare against the sealed hash from Stage 1.
 3. **Match** → chain intact, evidence provably unaltered.
    **Mismatch** → flag "evidence altered / chain of custody broken."
 
-> **Demo moment:** seal a pcap → analyze → then flip one byte and re-verify → the tool
-> declares the evidence tampered. This 10-second demonstration *is* the pitch. No other
-> team will have it.
+> **Live proof:** seal a pcap → analyze → then flip one byte and re-verify → the tool
+> declares the evidence tampered. This 10-second demonstration is the whole point of the
+> evidence-integrity layer.
 
 ### Honest framing
 Prefer "evidentiary integrity / tamper-evident chain of custody **designed toward**

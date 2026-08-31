@@ -1,9 +1,10 @@
 # Sample PCAPs
 
-Curated demo captures. **Each file here must fire at least one detector** (open
-risk #2 in [`../docs/handoff.md`](../docs/handoff.md)). Hand-pick captures from
+Curated captures for exercising each detector. **Each file here must fire at least
+one detector** (open risk #2 in [`../docs/handoff.md`](../docs/handoff.md)).
+Hand-pick captures from
 [malware-traffic-analysis.net](https://malware-traffic-analysis.net) per detector
-so no detector shows zero hits on demo day.
+so no detector goes untested against a real trace.
 
 | File | Fires detector | Source / notes |
 |---|---|---|
@@ -12,8 +13,9 @@ so no detector shows zero hits on demo day.
 | _(tbd)_ | port_scan | nmap / recon sample |
 | _(tbd)_ | tls_client | JA3 with a known abuse.ch SSLBL match |
 
-> Do not commit large or licensing-restricted captures to the public history.
-> Keep this repo private until pcaps are cleared (see session note).
+> Captures are git-ignored (`*.pcap`, `*.pcapng`) — never commit large or
+> licensing-restricted files. Third-party malware-traffic captures may carry
+> distribution restrictions; keep them local, do not push them to the repo.
 
 `sslbl_ja3.cache` (the locally cached abuse.ch JA3 blocklist) also lives here and
 is git-ignored.

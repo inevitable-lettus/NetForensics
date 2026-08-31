@@ -13,6 +13,10 @@ sample-pcaps/*.cache
 *.sqlite
 *.db
 
+# Original source docs (local reference only, not published)
+NetForensics_Solution_Document.docx
+NetForensics_Flow_Diagram.pdf
+
 # OS / editor
 .DS_Store
 .idea/
