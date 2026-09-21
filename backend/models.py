@@ -181,3 +181,20 @@ class CheckResult:
 class VerificationReport:
     verdict: Verdict
     checks: tuple[CheckResult, ...]
+
+
+# --------------------------------------------------------------------------- #
+# Case file — what one analysis run produces
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class CaseRecord:
+    """Everything one analysis run yields: the seal taken BEFORE analysis and the
+    findings produced after. Reports and the API read this; they never re-parse
+    the pcap (CLAUDE.md: report generation never re-parses pcaps)."""
+
+    case_id: str
+    seal: SealRecord
+    findings: tuple[Finding, ...]
+    flow_count: int           # generic (TCP/UDP) flows parsed — context for the report

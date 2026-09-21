@@ -61,6 +61,17 @@ class Allowlists:
 
 
 # --------------------------------------------------------------------------- #
+# Ingest (upload boundary)
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class IngestConfig:
+    max_upload_bytes: int = 512 * 1024 * 1024   # PROPOSED — reject larger uploads early
+    upload_chunk_bytes: int = 1024 * 1024       # streaming write size — never buffer a whole upload
+
+
+# --------------------------------------------------------------------------- #
 # Evidence-integrity layer
 # --------------------------------------------------------------------------- #
 
@@ -92,6 +103,7 @@ class Config:
     port_scan: PortScanConfig = field(default_factory=PortScanConfig)
     tls_client: TlsClientConfig = field(default_factory=TlsClientConfig)
     allowlists: Allowlists = field(default_factory=Allowlists)
+    ingest: IngestConfig = field(default_factory=IngestConfig)
     evidence: EvidenceConfig = field(default_factory=EvidenceConfig)
 
 

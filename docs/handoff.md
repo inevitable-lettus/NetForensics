@@ -8,10 +8,12 @@ holds where the build is, what to do next, and unresolved decisions. For the des
 
 ## Current phase
 
-**Phase 3 — evidence-integrity layer, in progress.** Three of four detectors done
+**Phase 1 plumbing done (2026-09-21); Phase 3 — evidence-integrity layer next (steps
+3-8).** Upload → seal → parse → detect → JSON case → PDF works end to end (API + React
+page). Three of four detectors done
 (DNS exfil, C2 beacon, port scan). JA3 fingerprinting **deliberately deferred** (user
 call, 2026-09-19) — evidence layer gets built out fully first. Test suite green
-(60 passed before Phase 3 work). Plan:
+(**92 passed**). Plan:
 `~/.claude/plans/update-handoff-md-to-fix-peaceful-treehouse.md` — dual-hash seal →
 RFC 3161 timestamp (PENDING + retry offline) → hash-chained custody → verify, persisted
 append-only in SQLite, driven by a CLI tamper demo.
@@ -78,8 +80,12 @@ Per [`../plan.md`](../plan.md) file/phase order; ownership tags superseded — s
       second-axis config field if a HIGH tier is wanted.
 - [x] Port-scan detector (fan-out: distinct ports/hosts per source in a window).
 - [ ] JA3 fingerprinting (hash + SSLBL match) — **deferred** until evidence layer done.
-- [ ] Upload endpoint; pipeline orchestrator; minimal PDF; minimal React
-      upload/results page. (SQLite seal table + file storage now folded into Phase 3.)
+- [x] Upload endpoint (`backend/api/app.py`, `/api/cases`), pipeline orchestrator
+      (`backend/pipeline.py`), generic flow parser (`backend/parse/flow_parser.py`),
+      upload validation (`backend/ingest/pcap_validation.py`), interim JSON-per-case
+      store (`backend/db/case_store.py` — replaced by SQLite in Phase 3 step 6),
+      minimal PDF (`backend/report/pdf.py`), React+TS page (`frontend/`). Verified in
+      browser. Review deferred to end-of-project (see collaboration note below).
 
 ### Phase 3 — evidence layer (NEXT UP, in progress)
 
@@ -151,6 +157,30 @@ language, no code) → user researches + writes it → user asks for help only i
 | 4 | **tshark on the dev machine** | PyShark needs tshark installed; verify on the actual machine. Keep dpkt path independent. | OPEN — confirmed MISSING on this dev machine (`scripts/check_deps.py`). `brew install wireshark` before relying on PyShark; dpkt path unaffected. |
 | 5 | **Custody-log tamper-evidence mechanism** | Decide hash-chained entries (each references prior). Must be genuine, not cosmetic. | OPEN |
 
+- **2026-09-21** — **Phase B (plumbing) complete.** Committed Phase 3 steps 1-2
+  (`be37241`, no co-author line per user). Added: `flow_parser.py` (bidirectional flows,
+  initiator-oriented so a scanned host's replies never look like a scanner; new SYN on a
+  live 5-tuple starts a new flow; Ethernet/IPv4 TCP/UDP only — no pcapng/IPv6/UDP idle
+  timeout), `pcap_validation.py` (rejects non-pcap and pcapng with a specific message),
+  `pipeline.analyze_pcap` (seals **first**, then parse + detect; findings sorted by
+  severity), `CaseStore` (strict 32-hex case-id pattern blocks path traversal; upload
+  filename reduced to basename; streamed with size cap → 413; failed uploads discarded),
+  serialization module (one to/from-JSON path for store and API), ReportLab PDF (reads the
+  record only), FastAPI app factory (`/api/cases` POST/GET, `/report.pdf`), `CaseRecord`
+  model, `IngestConfig`, Vite+React+TS frontend. 28 new tests, suite **92 passed**. Ran the
+  stack live: uploaded a crafted beacon pcap via the UI → sealed, `PENDING` timestamp,
+  C2 finding rendered; garbage upload → 400 shown in UI. Decisions: severity calls for
+  DNS-exfil (HIGH = both corroborate) and C2 (always MEDIUM) **confirmed as-is**;
+  interim persistence = JSON per case; frontend = Vite+React+TS. Collaboration: user
+  will do code review **at the end**, not per-piece — Phase B was written straight
+  through as plumbing; CLAUDE.md pairing rules for core logic NOT yet changed (asked,
+  unanswered). Observations to carry: (a) a perfectly-paced synthetic scan also trips the
+  C2 detector (evenly spaced connections → CV≈0) — real behaviour of the rule, worth
+  weighing when curating sample pcaps; (b) DNS and generic parses are two dpkt passes
+  over the pcap (dns_parser predates flow_parser) — fold into one pass if large captures
+  matter; (c) `flow_parser` leaves `Features.inter_arrival_times` empty (detectors
+  compute timing from flow start times); (d) starlette warns httpx is deprecated for
+  TestClient (`httpx2`) — cosmetic. Next: Phase 3 step 3 (custody chain).
 - **2026-08-29** — Built `backend/detectors/c2_beacon.py` end-to-end in pairing mode,
   full teaching sequence: plain-language concept explanation first (C2, beaconing,
   IAT, jitter, CV, sample-size problem — with a worked numeric example and a

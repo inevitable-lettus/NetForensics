@@ -24,3 +24,7 @@ NetForensics_Flow_Diagram.pdf
 
 # Content-addressed evidence store + custody DB (local only)
 evidence_store/
+
+# Frontend
+node_modules/
+frontend/dist/

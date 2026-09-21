@@ -146,9 +146,13 @@ python scripts/check_deps.py
 # run tests
 python -m pytest -q
 
-# run backend    — TBD (FastAPI app lands in Phase 1)
-# run frontend   — TBD (React, Phase 1)
-# analyze a pcap — TBD (pipeline orchestrator, Phase 1)
+# run backend (API on :8000; cases stored under evidence_store/)
+uvicorn backend.api.app:app --reload
+
+# run frontend (Vite dev server on :5173, proxies /api -> :8000)
+cd frontend && npm install && npm run dev
+
+# analyze a pcap from Python (no server): backend.pipeline.analyze_pcap(case_id, path)
 ```
 
 External system dep: **tshark** (Wireshark) for the PyShark parse path — `brew

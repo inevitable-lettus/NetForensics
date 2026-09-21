@@ -68,6 +68,8 @@ Each is a transparent rule, not a model.
   shows long subdomains and a high query rate to one parent.
 - **Threshold / baseline:** Benign domains sit near **entropy ~2.5**; encoded data
   reaches **~4.2+**. Length and query-rate thresholds **(proposed / to confirm)**.
+- **Severity:** `HIGH` only when length **and** rate both corroborate entropy;
+  `MEDIUM` when just one does — **decided 2026-09-21**.
 - **Evidence string (example):** *"Subdomain `<x>` of `<parent>` has Shannon entropy
   4.2 (benign baseline ~2.5), with 312 queries in 60s — consistent with encoded data
   exfiltrated over DNS."*
@@ -90,12 +92,11 @@ Each is a transparent rule, not a model.
   treated as **not computable** and skipped, not flagged. `dst_ip` allowlist
   (`Allowlists.beacon_dst_ips`) checked before any stats work, for known-legitimate
   heartbeats.
-- **Severity:** Always `MEDIUM` — **open decision**. Unlike DNS-exfil (entropy +
+- **Severity:** Always `MEDIUM` — **decided 2026-09-21**. Unlike DNS-exfil (entropy +
   length/rate corroboration → HIGH), this detector has one signal (CV), so there is no
-  second axis to corroborate against without inventing an unconfigured cutoff.
-  Candidate second axis if a HIGH tier is wanted: connection count well above
-  `min_connections` strengthens the statistical claim — would need its own named
-  config field, not a hardcoded fraction.
+  second axis to corroborate against without inventing an unconfigured cutoff. Revisit
+  only if a genuine second signal appears; it would need its own named config field,
+  not a hardcoded fraction.
 - **Known limitation:** Adaptive C2 (e.g. operator-tunable jitter) can push CV above
   the threshold deliberately to evade this exact check — this catches the common case
   honestly, not adaptive adversaries. The evidence string states exact numbers so a
