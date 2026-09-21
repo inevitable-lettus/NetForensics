@@ -68,10 +68,16 @@ class Allowlists:
 @dataclass(frozen=True)
 class EvidenceConfig:
     hash_algorithm: str = "blake3"
+    hash_chunk_bytes: int = 1024 * 1024     # streaming read size — never load whole pcap
     # RFC 3161 TSA + offline fallback (open risk #1 — must not hard-fail on demo wifi).
     tsa_url: str = "https://freetsa.org/tsr"
     tsa_timeout_secs: int = 5
-    allow_offline_fallback: bool = True
+    allow_offline_fallback: bool = True     # TSA failure -> PENDING + retry, never faked
+    tsa_cert_path: str = "backend/evidence/certs/freetsa_tsa.crt"
+    tsa_ca_path: str = "backend/evidence/certs/freetsa_cacert.pem"
+    # Local persistence (git-ignored).
+    evidence_store_dir: str = "evidence_store"
+    db_path: str = "evidence_store/netforensics.sqlite"
 
 
 # --------------------------------------------------------------------------- #

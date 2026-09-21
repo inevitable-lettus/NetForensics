@@ -21,3 +21,6 @@ NetForensics_Flow_Diagram.pdf
 .DS_Store
 .idea/
 .vscode/
+
+# Content-addressed evidence store + custody DB (local only)
+evidence_store/

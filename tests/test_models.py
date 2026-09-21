@@ -12,6 +12,7 @@ from backend.models import (
     Finding,
     SealRecord,
     Severity,
+    TimestampStatus,
 )
 from tests.fixtures.pcap_builder import dns_flow, make_flow
 
@@ -50,14 +51,17 @@ def test_seal_record_records_hash_and_time() -> None:
         pcap_size_bytes=1024,
         hash_algorithm="blake3",
         pcap_hash="deadbeef",
+        sha256_hash="cafef00d",
         received_at=datetime(2026, 6, 25, 10, 0, 0),
     )
     assert seal.hash_algorithm == "blake3"
     assert seal.rfc3161_token is None  # offline fallback path is representable
+    assert seal.timestamp_status is TimestampStatus.PENDING
 
 
 def test_custody_entry_chains_to_prior() -> None:
     genesis = CustodyEntry(
+        case_id="case-1",
         index=0,
         timestamp=datetime(2026, 6, 25, 10, 0, 0),
         event_type="ingest",
@@ -66,6 +70,7 @@ def test_custody_entry_chains_to_prior() -> None:
         entry_hash="h0",
     )
     nxt = CustodyEntry(
+        case_id="case-1",
         index=1,
         timestamp=datetime(2026, 6, 25, 10, 0, 1),
         event_type="parse",

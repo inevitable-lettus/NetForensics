@@ -107,21 +107,31 @@ class Finding:
 # --------------------------------------------------------------------------- #
 
 
+class TimestampStatus(str, Enum):
+    GRANTED = "granted"   # TSA returned a token binding the SHA-256 to its clock
+    PENDING = "pending"   # TSA unreachable at ingest — retried later, never faked
+
+
 @dataclass(frozen=True)
 class SealRecord:
     """The digital evidence-bag seal, created in Stage 1 BEFORE any analysis.
 
     Establishes "this is the exact evidence, unaltered, as received at this time."
-    `rfc3161_token` is the DER-encoded timestamp token from the TSA (or None when
-    the offline fallback is used — see open risk #1).
+    Two digests over the same bytes: BLAKE3 (primary, fast) and SHA-256 (the digest
+    the RFC 3161 TSA timestamps, and the one openssl / courts already recognise).
+    `rfc3161_token` is the DER-encoded timestamp token, or None while PENDING.
+    `timestamp_gen_time` is the TSA's clock, not ours — compare with `received_at`.
     """
 
     pcap_filename: str
     pcap_size_bytes: int
     hash_algorithm: str       # "blake3"
-    pcap_hash: str            # hex digest of the entire pcap
+    pcap_hash: str            # BLAKE3 hex digest of the entire pcap
+    sha256_hash: str          # SHA-256 hex digest of the same bytes
     received_at: datetime
+    timestamp_status: TimestampStatus = TimestampStatus.PENDING
     rfc3161_token: bytes | None = None
+    timestamp_gen_time: datetime | None = None
     tsa_url: str | None = None
 
 
@@ -131,13 +141,43 @@ class CustodyEntry:
 
     Each entry references the prior entry's hash, so no entry can be altered or
     removed without breaking every later link. Genuine tamper-evidence, not
-    cosmetic (Hard Rule 3).
+    cosmetic (Hard Rule 3). Entry 0's prev_hash is bound to the seal, so a chain
+    cannot be transplanted onto different evidence.
     """
 
+    case_id: str              # the sealed evidence this chain belongs to
     index: int                # 0-based position in the chain
     timestamp: datetime
-    event_type: str           # "ingest" | "parse" | "finding" | "report" | "verify"
+    event_type: str           # "ingest" | "parse" | "finding" | "report" | "verify" | ...
     detail: str               # human-readable description of the event
-    prev_hash: str            # entry_hash of the previous entry ("" for genesis)
-    entry_hash: str           # hash over (index, timestamp, event_type, detail, prev_hash)
+    prev_hash: str            # entry_hash of the previous entry (seal-derived for genesis)
+    entry_hash: str           # hash over ALL fields above AND payload — nothing unhashed
     payload: dict[str, object] = field(default_factory=dict)
+
+
+# --------------------------------------------------------------------------- #
+# Verification results — the explainability contract, applied to integrity
+# --------------------------------------------------------------------------- #
+
+
+class Verdict(str, Enum):
+    INTACT = "intact"            # every check passed
+    ALTERED = "altered"          # at least one check failed — custody broken
+    INCOMPLETE = "incomplete"    # nothing failed, but a timestamp is still PENDING
+
+
+@dataclass(frozen=True)
+class CheckResult:
+    """One integrity check. `evidence` is the sentence a magistrate reads —
+    the measured value vs. the sealed value, never a bare pass/fail.
+    `passed` is None when the check could not run yet (e.g. PENDING token)."""
+
+    name: str
+    passed: bool | None
+    evidence: str
+
+
+@dataclass(frozen=True)
+class VerificationReport:
+    verdict: Verdict
+    checks: tuple[CheckResult, ...]

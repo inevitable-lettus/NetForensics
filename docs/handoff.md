@@ -8,11 +8,13 @@ holds where the build is, what to do next, and unresolved decisions. For the des
 
 ## Current phase
 
-**Phase 0 complete.** Phase 1 vertical slice (DNS path) wired end-to-end. Phase 2
-underway — **C2-beaconing detector drafted and tested** (2nd of 4 detectors). Test
-suite green (51 passed). Next concrete work: port-scan detector or JA3 fingerprinting
-(remaining detectors), or upload endpoint + pipeline orchestrator to drive the DNS
-slice from a real pcap file.
+**Phase 3 — evidence-integrity layer, in progress.** Three of four detectors done
+(DNS exfil, C2 beacon, port scan). JA3 fingerprinting **deliberately deferred** (user
+call, 2026-09-19) — evidence layer gets built out fully first. Test suite green
+(60 passed before Phase 3 work). Plan:
+`~/.claude/plans/update-handoff-md-to-fix-peaceful-treehouse.md` — dual-hash seal →
+RFC 3161 timestamp (PENDING + retry offline) → hash-chained custody → verify, persisted
+append-only in SQLite, driven by a CLI tamper demo.
 
 ## Done so far
 
@@ -44,7 +46,10 @@ slice from a real pcap file.
   contrast case (CV > 1). Open call flagged for review: `severity` is always `MEDIUM`
   — no second signal to corroborate against for a HIGH tier without inventing an
   unconfigured cutoff (see `docs/logic.md` §2). — 2026-08-29
-- Full suite: **51 passed.**
+- **Port-scan detector** (`backend/detectors/port_scan.py`) — groups by `src_ip`,
+  O(n) two-pointer sliding window for peak distinct ports/hosts per `window_secs`.
+  Tests in `tests/test_port_scan.py`. Committed `4b533b6`.
+- Full suite: **60 passed.**
 
 ## Next up (Phase 1 — Vertical slice)
 
@@ -71,11 +76,23 @@ Per [`../plan.md`](../plan.md) file/phase order; ownership tags superseded — s
       explain-before-write at every step. 14 tests pass. Open call flagged: always
       `MEDIUM` severity (no second corroborating signal) — confirm or supply a named
       second-axis config field if a HIGH tier is wanted.
-- [ ] Port-scan detector (fan-out: distinct ports/hosts per source in a window) or
-      JA3 fingerprinting (hash + SSLBL match) — remaining two of four detectors.
-- [ ] Upload endpoint + file storage; SQLite seal table + DAO; pipeline orchestrator;
-      minimal PDF; minimal React upload/results page. — **NEXT UP** (either this or a
-      remaining detector).
+- [x] Port-scan detector (fan-out: distinct ports/hosts per source in a window).
+- [ ] JA3 fingerprinting (hash + SSLBL match) — **deferred** until evidence layer done.
+- [ ] Upload endpoint; pipeline orchestrator; minimal PDF; minimal React
+      upload/results page. (SQLite seal table + file storage now folded into Phase 3.)
+
+### Phase 3 — evidence layer (NEXT UP, in progress)
+
+- [x] Step 1 — shared shapes + config (`SealRecord` dual hash + timestamp status,
+      `CustodyEntry.case_id`, `CheckResult`/`VerificationReport`).
+- [x] Step 2 `[CORE]` streaming dual-hash seal (BLAKE3 + SHA-256, one pass) —
+      `hash_file` → `FileDigests` (shared with verify), `seal_pcap` → PENDING seal.
+- [ ] Step 3 `[CORE]` hash-chained custody (`backend/evidence/custody.py`).
+- [ ] Step 4 `[CORE]` RFC 3161 timestamp request/verify (`timestamp.py`).
+- [ ] Step 5 `[CORE]` case verification + chain-head anchoring (`verify.py`).
+- [ ] Step 6 SQLite append-only store + content-addressed evidence store.
+- [ ] Step 7 CLI incl. `tamper-demo`.
+- [ ] Step 8 docs (logic.md mechanism, risks #1/#5 resolved, CLAUDE.md commands).
 
 ### Phase 0 — done
 

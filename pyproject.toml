@@ -15,4 +15,7 @@ include = ["backend*"]
 # Run from repo root so `backend` and `tests` import cleanly.
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-ra"
+addopts = "-ra -m 'not network'"
+markers = [
+    "network: needs live internet (RFC 3161 TSA round trip) — opt in with -m network",
+]
