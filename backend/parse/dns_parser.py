@@ -9,6 +9,7 @@ transfers, oversized responses) is out of scope for this detector.
 from __future__ import annotations
 
 import socket
+import struct
 from collections.abc import Iterable, Iterator
 from datetime import datetime, timezone
 
@@ -16,6 +17,51 @@ import dpkt
 
 from backend.models import DnsFeatures, Features, Flow
 from backend.parse.entropy import shannon_entropy
+
+
+_DNS_HEADER_LEN = 12
+_QUESTION_TAIL_LEN = 4  # QTYPE + QCLASS after each name
+
+
+def _questions_lossless(payload: bytes) -> list[str]:
+    """Read question names straight from the DNS wire format, decoding label bytes with
+    backslash escapes instead of failing. Fallback for names dpkt rejects because a
+    label is not valid UTF-8 (e.g. iodine's Latin-1 padding): the label is kept, with
+    each bad byte shown as \\xNN, so the detector still measures it.
+
+    Questions only, uncompressed only: a compression pointer or a truncated packet ends
+    the read and returns the names parsed so far."""
+    if len(payload) < _DNS_HEADER_LEN:
+        return []
+    question_count = struct.unpack("!H", payload[4:6])[0]
+    names: list[str] = []
+    offset = _DNS_HEADER_LEN
+    for _ in range(question_count):
+        labels: list[bytes] = []
+        while True:
+            if offset >= len(payload):
+                return names
+            length = payload[offset]
+            offset += 1
+            if length == 0:
+                break
+            if length & 0xC0:
+                return names
+            labels.append(payload[offset : offset + length])
+            offset += length
+        names.append(b".".join(labels).decode("utf-8", errors="backslashreplace"))
+        offset += _QUESTION_TAIL_LEN
+    return names
+
+
+def _query_names(payload: bytes) -> list[str]:
+    """Question names in one DNS payload; [] when it is not parseable DNS at all."""
+    try:
+        return [question.name for question in dpkt.dns.DNS(payload).qd]
+    except UnicodeDecodeError:
+        return _questions_lossless(payload)
+    except dpkt.dpkt.UnpackError:
+        return []
 
 
 def _iter_dns_queries(pcap_path: str) -> Iterator[tuple[datetime, str, str, str]]:
@@ -35,15 +81,11 @@ def _iter_dns_queries(pcap_path: str) -> Iterator[tuple[datetime, str, str, str]
             udp = ip.data
             if not isinstance(udp, dpkt.udp.UDP) or udp.dport != 53:
                 continue
-            try:
-                dns = dpkt.dns.DNS(udp.data)
-            except dpkt.dpkt.UnpackError:
-                continue
             src_ip = socket.inet_ntoa(ip.src)
             dst_ip = socket.inet_ntoa(ip.dst)
             timestamp = datetime.fromtimestamp(ts, tz=timezone.utc)
-            for question in dns.qd:
-                yield timestamp, src_ip, dst_ip, question.name
+            for name in _query_names(udp.data):
+                yield timestamp, src_ip, dst_ip, name
 
 
 def _split_domain(name: str) -> tuple[str, str]:
