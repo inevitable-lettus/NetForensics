@@ -6,14 +6,20 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.api.app import create_app
-from backend.config import Config, IngestConfig
-from backend.db.case_store import CaseStore
+from backend.config import Config, EvidenceConfig, IngestConfig
+from backend.db.storage import Storage
 from tests.fixtures.packets import syn_frame, write_timed_pcap
+
+
+def _storage(root: Path) -> Storage:
+    return Storage.open(
+        EvidenceConfig(evidence_store_dir=str(root), db_path=str(root / "nf.sqlite"))
+    )
 
 
 @pytest.fixture
 def client(tmp_path: Path) -> TestClient:
-    return TestClient(create_app(CaseStore(tmp_path / "cases")))
+    return TestClient(create_app(_storage(tmp_path / "store")))
 
 
 def _beacon_pcap_bytes(tmp_path: Path) -> bytes:
@@ -48,12 +54,14 @@ def test_case_can_be_fetched_again_and_pdf_downloaded(client: TestClient, tmp_pa
 def test_garbage_upload_is_400_and_leaves_no_case_behind(client: TestClient, tmp_path: Path):
     response = _upload(client, "x.pcap", b"definitely not a pcap file at all")
     assert response.status_code == 400
-    assert not any((tmp_path / "cases").iterdir())
+    staging = tmp_path / "store" / "staging"
+    assert not staging.exists() or not any(staging.iterdir())
+    assert not (tmp_path / "store" / "objects").exists()
 
 
 def test_oversize_upload_is_413(tmp_path: Path):
     config = Config(ingest=IngestConfig(max_upload_bytes=8))
-    app = create_app(CaseStore(tmp_path / "cases"), config)
+    app = create_app(_storage(tmp_path / "store"), config)
     response = _upload(TestClient(app), "x.pcap", b"x" * 100)
     assert response.status_code == 413
 
@@ -62,3 +70,16 @@ def test_unknown_and_malformed_case_ids_are_404(client: TestClient):
     assert client.get(f"/api/cases/{'0' * 32}").status_code == 404
     assert client.get("/api/cases/not-a-valid-id").status_code == 404
     assert client.get(f"/api/cases/{'0' * 32}/report.pdf").status_code == 404
+
+
+def test_upload_commits_pcap_to_its_content_address(client: TestClient, tmp_path: Path):
+    data = _beacon_pcap_bytes(tmp_path)
+    digest = _upload(client, "beacon.pcap", data).json()["seal"]["pcap_hash"]
+    stored = tmp_path / "store" / "objects" / digest[:2] / digest
+    assert stored.read_bytes() == data
+    assert not any((tmp_path / "store" / "staging").iterdir())
+
+
+def test_unknown_or_malformed_case_id_is_404(client: TestClient):
+    assert client.get(f"/api/cases/{'b' * 32}").status_code == 404
+    assert client.get("/api/cases/..%2Fetc").status_code == 404

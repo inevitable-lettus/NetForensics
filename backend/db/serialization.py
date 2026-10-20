@@ -9,7 +9,14 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from backend.models import CaseRecord, Finding, SealRecord, Severity, TimestampStatus
+from backend.models import (
+    CaseRecord,
+    CustodyEntry,
+    Finding,
+    SealRecord,
+    Severity,
+    TimestampStatus,
+)
 
 
 def to_jsonable(value: Any) -> Any:
@@ -67,4 +74,17 @@ def case_from_dict(raw: dict[str, Any]) -> CaseRecord:
         seal=seal_from_dict(raw["seal"]),
         findings=tuple(finding_from_dict(f) for f in raw["findings"]),
         flow_count=raw["flow_count"],
+    )
+
+
+def custody_entry_from_dict(raw: dict[str, Any]) -> CustodyEntry:
+    return CustodyEntry(
+        case_id=raw["case_id"],
+        index=raw["index"],
+        timestamp=datetime.fromisoformat(raw["timestamp"]),
+        event_type=raw["event_type"],
+        detail=raw["detail"],
+        prev_hash=raw["prev_hash"],
+        entry_hash=raw["entry_hash"],
+        payload=raw["payload"],
     )
