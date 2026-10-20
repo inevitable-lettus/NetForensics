@@ -59,18 +59,21 @@ Actively built in public increments, not finished. Current state:
 **Done**
 - Shared data models, detector interface, and single-source config
   (`backend/models.py`, `backend/detectors/base.py`, `backend/config.py`)
-- DNS-exfiltration detector + dpkt-based DNS parser, wired end-to-end
-- C2-beaconing detector
-- Port-scan / fan-out detector
-- BLAKE3 pcap sealing (`backend/evidence/seal.py`)
-- 60 passing tests across all of the above
+- Three of four detectors: DNS exfiltration (+ dpkt DNS parser), C2 beaconing, port scan
+- Generic flow parser, upload validation, and the analysis pipeline
+  (`backend/parse/flow_parser.py`, `backend/ingest/`, `backend/pipeline.py`)
+- Dual-hash pcap seal: BLAKE3 + SHA-256 in one streaming pass (`backend/evidence/seal.py`)
+- FastAPI upload/case/report API, interim JSON-per-case store, and PDF report
+  (`backend/api/`, `backend/db/`, `backend/report/`)
+- React + TypeScript frontend (`frontend/`)
+- 92 passing tests across all of the above
 
 **Not yet built**
-- JA3 fingerprinting detector (4th of four)
-- RFC 3161 timestamping + hash-chained custody log
-- Upload API, SQLite storage, pipeline orchestrator
-- PDF report generation
-- React frontend
+- JA3 fingerprinting detector (4th of four, deliberately deferred)
+- Hash-chained custody log
+- RFC 3161 timestamping (seals are currently stored with a `PENDING` timestamp)
+- Case verification and the tamper demo CLI
+- SQLite storage (cases are interim JSON files until then)
 
 See [`docs/handoff.md`](docs/handoff.md) for the live, detailed build log —
 what's done, what's next, and open decisions — updated every working session.
@@ -100,17 +103,24 @@ package; the dpkt parse path works without it.
 ```
 backend/
 ├── models.py          shared data shapes (Flow, Finding, SealRecord, CustodyEntry)
-├── config.py           single source of truth for thresholds/baselines
-├── detectors/          one module per detector, common Detector.run() interface
-├── parse/               pcap → flow/feature extraction (dpkt, entropy)
-└── evidence/           BLAKE3 sealing, custody chain (in progress)
+├── config.py          single source of truth for thresholds/baselines
+├── pipeline.py        seal first, then parse and detect
+├── api/               FastAPI routes (upload, case, report)
+├── ingest/            upload validation
+├── parse/             pcap → flow/feature extraction (dpkt, entropy)
+├── detectors/         one module per detector, common Detector.run() interface
+├── evidence/          BLAKE3 + SHA-256 sealing; custody chain (in progress)
+├── db/                case store and serialization (interim JSON, SQLite planned)
+└── report/            PDF report
+frontend/              React + Vite + TypeScript UI
 docs/
 ├── architecture.md    system structure, pipeline, stack, dependency risks
-├── logic.md            detector formulas, thresholds, evidence-layer mechanics
-├── handoff.md          living build state — read this for where things stand
-└── plan.md              phased build roadmap
-tests/                  one test module per detector/parser, crafted fixtures
-sample-pcaps/            curated captures for exercising each detector (git-ignored)
+├── logic.md           detector formulas, thresholds, evidence-layer mechanics
+├── handoff.md         living build state — read this for where things stand
+└── plan.md            phased build roadmap
+tests/                 one test module per detector/parser, crafted fixtures
+scripts/               environment checks
+sample-pcaps/          curated captures for exercising each detector (git-ignored)
 ```
 
 ## Docs
