@@ -152,11 +152,18 @@ language, no code) → user researches + writes it → user asks for help only i
 
 | # | Issue | Why it matters | Status |
 |---|---|---|---|
-| 1 | **RFC 3161 TSA choice + offline fallback** | A live TSA needs internet and can fail, which would kill the headline feature. Pick a TSA (e.g. freeTSA.org) and cache/fallback so it never hard-fails. | OPEN |
+| 1 | **RFC 3161 TSA choice + offline fallback** | A live TSA needs internet and can fail, which would kill the headline feature. Pick a TSA (e.g. freeTSA.org) and cache/fallback so it never hard-fails. | DECIDED, not built: `config.py` uses freetsa.org; offline keeps the seal `PENDING` and retries, never faked. Built in Phase 3 step 4. |
 | 2 | **Curate sample pcaps so all 4 detectors fire** | A walkthrough where TLS/SSLBL shows zero hits is weak. Hand-pick captures from malware-traffic-analysis.net per detector. | OPEN |
 | 3 | **"Court-admissible" wording** | Overclaiming invites a brutal "prove it" question. Reframe toward "evidentiary integrity / tamper-evident, designed toward admissibility." Prove tamper-evidence live instead. | OPEN |
-| 4 | **tshark on the dev machine** | PyShark needs tshark installed; verify on the actual machine. Keep dpkt path independent. | OPEN — confirmed MISSING on this dev machine (`scripts/check_deps.py`). `brew install wireshark` before relying on PyShark; dpkt path unaffected. |
-| 5 | **Custody-log tamper-evidence mechanism** | Decide hash-chained entries (each references prior). Must be genuine, not cosmetic. | OPEN |
+| 4 | **tshark on the dev machine** | PyShark needs tshark installed; verify on the actual machine. Keep dpkt path independent. | OPEN. Verified 2026-10-20: tshark MISSING on this Mac (`which tshark` empty); pyshark is pip-installed in `.venv`. No code under `backend/` or `tests/` imports pyshark, so all 92 tests pass without tshark; only `scripts/check_deps.py` warns. The PyShark path is not built yet (Phase 2 TLS/JA3 work), so tshark becomes a hard need only when JA3 parsing lands. `brew install wireshark` then. |
+| 5 | **Custody-log tamper-evidence mechanism** | Decide hash-chained entries (each references prior). Must be genuine, not cosmetic. | DECIDED in `logic.md` (hash-chained), not built. Phase 3 step 3. |
+| 6 | **Entropy threshold vs subdomain length** | Shannon entropy per character is capped at log2(length), so `entropy_threshold` 4.2 can only fire on subdomains of 19+ characters. Short encoded labels never reach it. | OPEN: tune against real captures (core/pairing). |
+| 7 | **Detector threshold values untuned** | `subdomain_length` 30, `query_rate` 50 per 60s, C2 `min_connections` 10 and max CV 0.1, port-scan 100 ports / 10 hosts / 10s are all marked PROPOSED in `backend/config.py`. Only the 2.5 / 4.2 entropy baselines come from the source proposal. | OPEN: tune in Phase 4 (core/pairing). |
+| 8 | **Cross-detector overlap** | A perfectly paced synthetic scan has near-zero CV and also trips the C2 beacon detector. Real behaviour of the rule, but it can confuse demo pcaps. | OPEN: weigh when curating sample pcaps. |
+| 9 | **Adaptive C2 evades CV check** | Operator-tunable jitter can push CV above 0.1 on purpose. C2 severity is always MEDIUM (one signal, no corroboration). | ACCEPTED limitation; stated in `logic.md` section 2. |
+| 10 | **Parser coverage and cost** | `flow_parser` handles Ethernet/IPv4 TCP/UDP only (no pcapng, no IPv6, no UDP idle timeout). DNS and generic flows are two separate dpkt passes. `Features.inter_arrival_times` is left empty (detectors use flow start times). | OPEN: fold into one pass if large captures matter. |
+| 11 | **Interim JSON case store** | `CaseStore` keeps one JSON file per case until the SQLite append-only store (Phase 3 step 6); no tamper-evidence there yet. | OPEN until step 6. |
+| 12 | **Stale README status** | README listed the upload API, orchestrator, PDF and frontend as unbuilt and said 60 tests; suite is 92. | RESOLVED by this refresh PR. |
 
 - **2026-09-21** — **Phase B (plumbing) complete.** Committed Phase 3 steps 1-2
   (`be37241`, no co-author line per user). Added: `flow_parser.py` (bidirectional flows,
