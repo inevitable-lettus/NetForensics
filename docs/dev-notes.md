@@ -25,6 +25,8 @@ arithmetic shown in the text), not estimated.
 8. [Evidence storage: SQLite and content-addressed files](#8-evidence-storage-sqlite-and-content-addressed-files)
 9. [Trusted-timestamp transport and retry](#9-trusted-timestamp-transport-and-retry)
 10. [Not built yet](#10-not-built-yet)
+11. [JA3 fingerprinting (proposed)](#11-ja3-fingerprinting-proposed)
+12. [Open questions for Garv](#12-open-questions-for-garv)
 
 ## Words used throughout
 
@@ -545,4 +547,430 @@ lands (standing rule).
 - **Case verification and the tamper demo:** re-hash the stored file, compare to the seal,
   walk the chain. The 10-second flip-one-byte demonstration.
 - **JA3 fingerprinting (4th detector):** matches TLS handshake fingerprints to a known
-  malware list. Deliberately deferred.
+  malware list. Deliberately deferred; proposal in section 11.
+
+---
+
+## 11. JA3 fingerprinting (proposed)
+
+_Status: concept draft for human approval. No JA3 code exists yet. Written 2026-10-20._
+
+### What it does
+JA3 gives every program that opens a TLS connection a short ID (32 hex characters), built from how the program *introduces itself* to a server. If that ID is on a list of IDs seen in malware, we raise a finding. We never decrypt anything and never read page content.
+
+### First, the background
+
+- **TLS** is the encryption used by HTTPS. Before any private data flows, the two sides do a **handshake** (an opening exchange where they agree on how to encrypt).
+- The first message is the **ClientHello**, sent by the client (the program making the connection). It says, in plain text (not encrypted), "here is what I support": which TLS versions, which encryption recipes, which optional features. The server's reply picks from this menu.
+- A **cipher suite** is one such encryption recipe, identified by a number. A client sends its whole list, in its own order of preference.
+- An **extension** is an optional feature the client announces, also a number (for example `0` = "I want the site called example.com", the server name, SNI).
+- **Curves** (elliptic curves) are the maths families the client can use for key exchange; **point formats** is a tiny setting for how curve data is written.
+
+Because the ClientHello is plain text, a passive capture contains it. That is why this works on a pcap.
+
+### Why a fingerprint identifies a program
+The menu in a ClientHello is not chosen by the user. It is baked in by the TLS library and settings of the program: Chrome, Firefox, Python `requests`, a given malware family each send a different menu, in a different order. The same program sends the same menu to every server. So the menu is like a handwriting sample: it says which *program* is talking, not which *person* or which *website*. Malware built from one codebase shares one menu, so one fingerprint covers all its infections.
+
+### How JA3 is computed (5 fields)
+Take these five values from the ClientHello, as decimal numbers, **in the order they appear on the wire**:
+
+1. **TLS version** (the ClientHello's own version field; 771 = TLS 1.2, even for TLS 1.3 clients, which hide the real version in an extension)
+2. **Cipher suites** list
+3. **Extensions** list (just the numbers, not their contents)
+4. **Curves** (the "supported groups" extension, number 10)
+5. **Point formats** (extension 11)
+
+Join numbers inside a field with `-`, join the five fields with `,`, then take the **MD5** of that text. (MD5 is a hash: a function that turns any text into a fixed 32-hex-character summary; same text always gives the same summary, any change gives a completely different one. We use it here only as a short label, not for security, so MD5's known weaknesses do not matter for this use.)
+
+**Worked example** (small made-up client, real arithmetic):
+
+| Field | Raw values on the wire | After dropping GREASE |
+|---|---|---|
+| Version | 771 | 771 |
+| Ciphers | 2570, 4865, 4866, 49195 | 4865-4866-49195 |
+| Extensions | 2570, 0, 23, 65281, 10, 11 | 0-23-65281-10-11 |
+| Curves | 6682, 29, 23, 24 | 29-23-24 |
+| Point formats | 0 | 0 |
+
+JA3 string: `771,4865-4866-49195,0-23-65281-10-11,29-23-24,0`
+MD5 of that string: `d513a2c384da97e772fef72dfe6d8276` (computed with Python `hashlib`). Change one number (say 24 to 25) and the hash is completely different.
+
+### GREASE: why some values must be dropped
+**GREASE** (RFC 8701) is a trick modern clients use on purpose: they insert made-up, meaningless numbers into the lists (always of the form `0x0a0a`, `0x1a1a`, ... `0xfafa`: 16 values, both bytes equal, low nibble `a`) and pick a *different* one each connection. The aim is to stop servers from breaking on unknown values. Above, 2570 (`0x0a0a`) and 6682 (`0x1a1a`) are GREASE. If we kept them, the same Chrome would give a different hash on every connection. So the JA3 rule is: **remove every GREASE value from ciphers, extensions and curves before building the string.** Getting this wrong is the most common JA3 bug, so we test it directly.
+
+### Matching against abuse.ch SSLBL
+**SSLBL** is a free blocklist from abuse.ch listing JA3 hashes seen in malware (CSV: `https://sslbl.abuse.ch/blacklist/ja3_fingerprints.csv`). Match rule: our hash equals a listed hash (exact, yes/no). Evidence: the hash, the JA3 string, the listing reason (malware family), and the SNI if present.
+
+Checked 2026-10-20:
+- The CSV header says "Last updated: 2021-08-03", it has fewer than 100 rows, and its newest "last seen" date is 2021-08-11. **The list is about five years old.** It will miss malware families from 2022 onwards.
+- The SSLBL website itself warns the fingerprints "have not been tested against known good traffic yet and may cause a significant amount of FPs" (false positives = harmless traffic wrongly flagged). Malware that uses the operating system's TLS library shares a fingerprint with ordinary programs.
+- I did not check whether abuse.ch plans to retire the service.
+
+So a match is a **lead for a human, not proof**. The finding text must say so.
+
+### Known limits
+- **Collisions:** two different programs can share a JA3 (same library, same settings). A match says "looks like", not "is".
+- **Randomised order:** Chrome (since about 2023) shuffles extension order each connection, so Chrome has no stable JA3. Harmless for a *malware* list (malware rarely randomises), but JA3 is useless for identifying browsers.
+- **Evasion:** a malware author can copy a browser's ClientHello.
+- **JA4** is the newer successor: it sorts the extensions before hashing, so shuffling no longer matters, and it is readable. Natural upgrade path; not in scope.
+- **Not visible to JA3:** QUIC/HTTP3 (ClientHello is inside encrypted packets), anything not on TCP, and ClientHellos split across several TCP packets if we do not reassemble (our scope rule excludes TCP reassembly). Newer browsers with large post-quantum key shares make a split more likely; for malware, rare.
+
+### What do we need to install?
+| | Parse with `dpkt` (already a dependency) | Use `tshark` (Wireshark's engine) |
+|---|---|---|
+| Install | nothing | `brew install wireshark` (missing on this Mac; the PyShark path is not built) |
+| Who computes JA3 | our own code (~60-80 lines: read TLS record, read ClientHello, drop GREASE, join, MD5) | Wireshark, via a JA3 field (field names not verified here: tshark is not installed) |
+| Explainability | every step is ours and shown in the evidence | black box call; "same engine as Wireshark" is a good courtroom line, though |
+| Split ClientHello | missed (no reassembly) | handled |
+| Speed / robustness | one pass in-process | a subprocess per file, depends on Wireshark version |
+| Testable offline | yes | needs the install in CI |
+
+I confirmed on this machine that `dpkt` 1.9.8 parses a ClientHello and returns cipher suites and extensions in wire order, and it even labels GREASE ciphers. Extensions come back as numbers with raw data, which is all JA3 needs.
+
+### Testing with no licence-clear sample
+No small public capture with a known SSLBL hit has a clear licence. Plan:
+1. **Generate our own** ClientHello bytes in a test (like the synthetic pcaps in `scripts/make_synthetic_pcaps.py`), including GREASE values, and check our function's output against the hash computed independently by `hashlib` from a string written out by hand (the table above is exactly such a test).
+2. Put a self-made hash in a **test blocklist file**, to prove the match path and the evidence text. This proves the code, not that the list catches real malware, and the docs must say so.
+3. **One-time cross-check** (optional): if the human is willing to install Wireshark, compare our hash with Wireshark's on one real capture of our own browser traffic.
+
+### Recommended design
+- Parse the ClientHello with `dpkt` plus a small amount of our own code. No tshark. Core logic, so pairing mode: explain, write, review one function at a time (drop-GREASE, build-string, hash, match).
+- Fill the existing `TlsFeatures(ja3, ja3_string, server_name)`, one flow per TCP connection, from the first ClientHello only.
+- Blocklist: a local copy of the SSLBL CSV loaded from the path already in config (`sslbl_cache_path`), fetched by a separate small script with a pinned hash; the detector itself does no network.
+- Severity: always MEDIUM (one signal, and the source warns about false positives); evidence names the list's age.
+- One detector module, one finding per (client IP, JA3), the same interface as the other three.
+
+### Open questions
+The five decisions this feature needs are in section 12, question C.
+
+---
+
+## 12. Open questions for Garv
+
+Read the whole document first, then decide here in one sitting. Each question stands
+alone: terms are defined where they first appear in that question, there is a small
+example where it helps, then numbered options with pros, cons and the team's
+recommendation, then an empty `Decision:` line for you to fill in. Questions are grouped by
+topic. Sources are named in brackets so you can check them.
+
+| Group | Questions |
+|---|---|
+| Evidence layer | A (custody chain, PR #19), H (what order to build), I (coming later: anchoring) |
+| Detectors and data | B (DNS non-text bytes, PR #18), C (JA3), D (threshold tuning), E (SSDP false positive, issue #17) |
+| Wording and process | F (evidence wording), G (working mode) |
+
+### Group 1: the evidence layer
+
+#### A. Approve the custody hash chain? (PR #19, five design choices)
+
+**Background.** The custody log is the list of events for a case (uploaded, parsed, each
+finding, report made). To make edits detectable, each entry stores a **hash** of its own
+contents, and also the hash of the entry before it. (A hash is a fixed-length fingerprint
+of data: same data always gives the same fingerprint, any change gives a different one.)
+Change entry 3 and its fingerprint no longer matches what entry 4 recorded, and the break
+shows. The first entry is tied to the sealed pcap, so a chain cannot be moved onto other
+evidence. Jim built it in PR #19; Pam tested it hard and found it held up. Pam raised
+findings that Jim has since fixed (PR #19, now at `e602d8d`, 169 tests pass): the hash
+algorithm (SHA-256) and the domain tags are now fixed in code, not config, so a config
+change can no longer weaken the chain or make old chains read as broken; an entry nested
+more than 32 levels deep (a crafted 5,000-level one used to crash the checker) is now
+reported as a break; and a seal time with no timezone is reported as a break, not a crash.
+
+**What the chain does not do (both gaps are fixed later by question I).** It cannot tell if
+the *last* entries were cut off the end, and someone with write access to the database who
+recomputes every later fingerprint produces a chain that still verifies.
+
+**The five choices you are asked to approve** (sources: PR #19 Part 4, Pam's review of #19).
+
+1. **Use SHA-256 for the chain**, not BLAKE3. SHA-256 is the older, universally supported
+   hash (what `shasum` and `openssl` compute, and what a timestamp authority signs).
+   *Pro:* anyone can re-check it with standard tools, and the chain's head can go straight
+   into a timestamp request later. *Con:* a second hash algorithm in the system (the seal
+   uses BLAKE3 as primary). Related: **MD5 and SHA-1** are older hashes now known to be
+   breakable by crafting two different inputs with the same fingerprint. The chain pins
+   SHA-256 in code so they can never be selected by a config change (done).
+2. **Hash a canonical JSON form of each entry.** *Canonical JSON* means one fixed way to
+   write the data as text: keys sorted, no spaces, one spelling of each value, so writer
+   and checker hash exactly the same bytes. Example why it matters: if you join fields with
+   a `|`, the pair `("ingest", "x|y")` and the pair `("ingest|x", "y")` both become
+   `ingest|x|y`, so two different entries give the same hash input. JSON puts quotes around
+   every string, so a boundary cannot move. *Alternative:* length-prefixed binary fields,
+   equally safe but not readable in a hex dump.
+3. **Refuse floating-point numbers; store them as text.** A float such as `4.2` has no single
+   text form across programs (`4.2` vs `4.2000000000000002`), so two honest systems could
+   hash it differently and report a false tamper. Callers store `"4.2"` instead, which is
+   also exactly what the evidence sentence shows. *Con:* callers must remember to convert.
+4. **No Unicode normalisation.** Unicode allows one visible character to be stored in two
+   ways: `é` as one code point (bytes `c3 a9`, SHA-256 starts `4a99557e`) or `e` plus a
+   combining accent (bytes `65 cc 81`, SHA-256 starts `bf12767b`). *Normalising* would
+   convert both to one form before hashing. We do **not**: we hash exactly what was stored.
+   *Pro:* a change in bytes is never hidden. *Con:* a harmless re-encoding looks like
+   tampering, a false alarm (the safe direction for evidence).
+5. **An empty log counts as broken.** Every sealed case starts with an ingest entry, so an
+   empty log means entries were lost, and it must never quietly pass.
+
+**Options.**
+1. **Approve all five and merge #19.** *Pro:* unblocks the rest of the evidence layer.
+   *Con:* choices 1 and 4 are costly to change later (every existing chain would read as
+   broken; a new format gets a new tag, `v2`).
+2. **Approve with changes** (say which choice). *Pro:* you stay in control of the format.
+   *Con:* rework and a delay.
+3. **Hold the merge** until you have read the PR's line-by-line walk-through. *Pro:* full
+   understanding. *Con:* slows everything behind it.
+
+**Recommendation:** option 1.
+Pam found no way to forge or silently alter an entry (9,218 random corruptions, all caught
+at the exact entry). You can reproduce the first fingerprint yourself: the shell one-liner
+in the PR gives `f3504c93…db360d`.
+
+Decision: 
+
+#### H. May Jim start the timestamp verifier (#11) while #19 is under review?
+
+**Background.** Issue #11 is the *RFC 3161 token verifier*. RFC 3161 is the internet
+standard for a **TSA** (timestamp authority: a trusted third party that signs "this hash
+existed at this time"). The verifier checks a signed answer from such a party. It does not
+depend on #19 (the custody chain). You asked for one pull request at a time; running both
+breaks that order.
+
+**Options.**
+1. **Keep strict order:** #19 merges, then Jim starts #11. *Pro:* you review one thing at
+   a time, nothing piles up. *Con:* Jim idles while waiting for you.
+2. **Allow #11 to start now, review it only after #19.** *Pro:* no idle time. *Con:* two
+   open pull requests; if #19 changes, #11 may need rebasing (small risk, they touch
+   different files).
+3. **Allow both and review in either order.** *Pro:* fastest. *Con:* the most to hold in
+   your head.
+
+**Recommendation:** option 2 (Jim writes now, you still review one at a time).
+
+Decision: 
+
+#### I. Coming later, information only: why the chain head must be anchored (issue #12)
+
+No decision needed yet. This is so the later question makes sense.
+
+**The problem.** A chain proves the entries you can see are in order and unedited. It
+cannot prove nothing was cut off the end. Example: a chain has 10 entries; someone deletes
+entries 8 and 9. The remaining 8 entries still link perfectly, so the log verifies as intact
+while the final events (say "report exported" and "verify") are gone. Entries have no secret
+key, so someone with database access could also rewrite entries and recompute all later
+fingerprints.
+
+**The fix.** *Anchoring*: take the latest entry's fingerprint (the "head") and have a
+timestamp authority sign it. Later, if the log's head is not the signed one, or a signed
+entry has vanished, truncation shows. Pam's note: the signed copy must live somewhere other
+than the same database, or it proves nothing.
+
+**What happens next.** When Jim reaches issue #12 he will compare options (for example
+signing the head at set points, and also printing the head in the PDF so a person can
+compare it on paper) and recommend one. It will come to you as a question then.
+
+Decision: (none needed now)
+
+### Group 2: detectors and data
+
+#### B. DNS names with non-text bytes: measure the escaped text or the raw bytes? (PR #18)
+
+**Background.** A DNS name is dot-separated *labels* (`www`, `example`, `com`). Each label
+is raw bytes. The library we use insists the bytes be valid UTF-8 (the standard way to turn
+bytes into text); some bytes such as `0xE4` are not valid on their own, and a capture of the
+tunnelling tool **iodine** (which hides data in DNS names) crashed the whole upload for that
+reason. PR #18 fixes the crash by keeping the label and writing each bad byte as text:
+`0xE4` becomes the four characters `\xe4`.
+
+**The side effect.** The detector measures a label's *length* and its *entropy* (a score of
+how random a string looks; 0 = predictable, higher = random; see section 3) on that escaped
+text, not on the real bytes. Real numbers from `dns-iodine.pcap`:
+
+| | Measured on raw bytes | Measured on escaped text (what PR #18 does) |
+|---|---|---|
+| Longest label length | 55 | 193 (46 bad bytes × 4 characters) |
+| Entropy | 5.74 | 3.43 |
+
+Tiny example: the four bytes `E4 E5 E6 E7` have entropy 2.0 raw (four different values) but
+2.5 on the 16-character escaped text `\xe4\xe5\xe6\xe7`. On long, dense labels like iodine's,
+escaping *lowers* the entropy, because the repeated `\`, `x` and `e` characters add
+predictability. So the tunnel looks less random than it is: errors lean toward **missing**
+a tunnel, not false alarms. The detector still fires HIGH on this capture (another label
+reaches 4.81), so nothing is lost today. But the length in a finding ("193 chars") is not
+what is on the wire (about 55 bytes), and evidence should state what is true.
+
+**Options** (sources: PR #18, Pam's QA of #18).
+1. **Keep escaping, document it, word the evidence "measured on the escaped rendering".**
+   *Pro:* smallest change; crash is fixed now. *Con:* numbers in findings differ from the
+   wire.
+2. **Measure raw bytes now** (carry the bytes through to the detector). *Pro:* true numbers,
+   evidence matches the wire. *Con:* touches more of the parser and the data shape; delays
+   the crash fix.
+3. **Keep escaping now, switch to raw bytes as a follow-up.** *Pro:* fixes the crash today
+   and gets truth later. *Con:* findings carry the escaped numbers in the meantime.
+
+**Recommendation:** option 3 (god's suggestion; the team agrees).
+
+Decision: 
+
+#### C. JA3 fingerprinting: five questions (Dwight's draft, section 11)
+
+Read section 11 first; it explains what **TLS** (the encryption behind HTTPS), the
+ClientHello, JA3, MD5, GREASE, and the blocklist are. In short: JA3 turns how a program
+introduces itself during the TLS handshake into a 32-character label, then checks the label
+against a list of labels seen in malware.
+
+1. **Is a 2021 blocklist acceptable?** The abuse.ch SSLBL list was last updated on
+   2021-08-03 and has under 100 rows; the site itself warns of false positives. *Option
+   1:* use it, and state its age in every finding (*pro:* free and works now; *con:* misses
+   malware from 2022 onward, matches are leads not proof). *Option 2:* look for a fresher
+   source first (*pro:* better coverage; *con:* delay, and no source is identified yet).
+   **Recommend 1.**
+2. **dpkt only, no tshark.** `dpkt` is the packet library we already use; `tshark` is
+   Wireshark's engine, which would need installing and runs as a separate program. *Option
+   1:* dpkt only; our own ~60-80 lines build the label (*pro:* every step explainable, no
+   install; *con:* we write and test it). *Option 2:* tshark (*pro:* mature, same engine as
+   Wireshark, handles split packets; *con:* black box, not installed on this Mac, harder to
+   test). *Option 3:* dpkt, plus a one-time comparison against Wireshark on a capture of
+   your own browser (*pro:* independent check; *con:* you install Wireshark once).
+   **Recommend 3 (3 includes 1).**
+3. **Accept missing a ClientHello split across several packets.** Finding it would need
+   *TCP reassembly* (stitching packets back into one stream), which the project excluded.
+   *Option 1:* accept and document (*pro:* scope stays fixed; *con:* some real handshakes
+   missed, more likely with modern post-quantum key sizes). *Option 2:* add reassembly
+   (*pro:* complete; *con:* breaks the scope rule, much more code). **Recommend 1.**
+4. **Severity.** *Option 1:* always MEDIUM (*pro:* simple, honest; one signal and a list
+   that warns of false positives). *Option 2:* MEDIUM, but LOW when the label is also common
+   in harmless software (*pro:* fewer false alarms; *con:* we have no data on which labels
+   those are). **Recommend 1.**
+5. **Seal the blocklist.** Record the list's own hash and download date with the case, so a
+   finding can be reproduced later. *Option 1:* yes (*pro:* fits the project's purpose;
+   *con:* a little more code). *Option 2:* no (*pro:* simpler; *con:* a later reader cannot
+   tell which list version produced a match). **Recommend 1.**
+
+Decision 1 (list age): 
+Decision 2 (dpkt/tshark): 
+Decision 3 (split hellos): 
+Decision 4 (severity): 
+Decision 5 (seal list): 
+
+#### D. Threshold tuning: what it means and the known weak spots
+
+**Background.** A *threshold* is a cutoff number a detector compares a measurement to. All
+current cutoffs are in section 7; most are "proposed" starting guesses, never tested
+against real traffic. *Tuning* means: run the detectors on many captures (the real and
+synthetic ones Dwight curated), see what fires and what is missed, change a number, repeat,
+and **write down why** each number is what it is. Because every finding prints the measured
+value next to its cutoff, you can always see how close a call was.
+
+**Known weak spots** (all measured, none hidden):
+- **DNS needs long names.** The entropy cutoff 4.2 cannot be reached by a string shorter than
+  19 characters (the highest possible entropy of a 19-character string is `log2(19)` = 4.25).
+  Our 20-character base32 sample scores 3.684 and is missed.
+- **A paced port scan also trips the beacon detector.** A scan that sends probes at perfectly
+  even intervals has a *coefficient of variation* (CV: how uneven the gaps are, as a
+  fraction of their average; 0 = metronome) near 0, so it also looks like a beacon.
+- **Jitter evades the beacon check.** Malware that randomises its timer pushes CV up. Gaps
+  of `60, 63, 57, 66, 54, 61, 59, 64, 56` seconds (about ±10% jitter) still give CV 0.066 and
+  fire. Gaps of `42, 78, 51, 66, 45, 72, 58, 63, 84, 55` (roughly ±35% jitter) give CV 0.226
+  and do not.
+
+**Options.**
+1. **Tune now** against the existing sample captures, record the reasons in `docs/logic.md`
+   and `dev-notes.md`. *Pro:* numbers become evidence-based. *Con:* small sample set, risk
+   of fitting the examples.
+2. **Tune later** (Phase 4), after the evidence layer is done. *Pro:* focus on the product's
+   differentiator first. *Con:* weak spots stay visible in demos.
+3. **Never tune; document the limits instead.** *Pro:* least work. *Con:* the tool stays a
+   guess.
+
+**Recommendation:** option 2, then option 1 in Phase 4; mode decided in question G.
+
+Decision: 
+
+#### E. SSDP false positive: how to stop flagging harmless discovery traffic (issue #17)
+
+**Background.** **SSDP** (Simple Service Discovery Protocol) is how devices on a home or
+office network announce themselves. It sends to a **multicast** address (one address that
+many devices listen on at once; `239.255.255.250` here). In the capture `ctu-185-1`, the
+host `192.168.1.2` sends there every 120 seconds with CV 0.000, so the beacon detector fires
+`MEDIUM`. The measurement is true (it *is* regular); the conclusion (command-and-control) is
+wrong. The same capture family also has a real beacon, `ctu-130-1`: 6,949 connections about
+every 9 seconds, CV 0.020, which must keep firing.
+
+An **allowlist** is a list of things the detector is told to ignore. **CIDR** is a compact
+way to write a block of addresses: `224.0.0.0/4` means "every address whose first 4 bits are
+1110", i.e. all 268,435,456 multicast addresses, and it contains `239.255.255.250`.
+
+**Options.**
+1. **Skip every multicast destination in the detector code.** *Pro:* simplest; fully covers
+   multicast. *Con:* the rule lives in code, not config; can't skip other benign addresses.
+2. **A CIDR allowlist in config** (extend the existing, empty list to hold ranges; default
+   multicast and broadcast). *Pro:* one source of truth, auditable, editable without code
+   changes, covers other benign ranges later. *Con:* a little more code, and a reviewer must
+   trust the list.
+3. **Still flag it, but add "likely benign: multicast discovery" to the evidence.** *Pro:*
+   nothing hidden. *Con:* the false alarm is still shown.
+
+Whichever is chosen, suppressed traffic should be recorded, not silently dropped.
+
+**Acceptance test:** `ctu-185-1` stops producing the multicast finding, while
+`ctu-130-1` still fires and a unit test shows even-timed traffic to multicast is skipped but
+the same timing to a normal address fires.
+
+**Recommendation:** option 2 (Angela and god recommend it; the team agrees).
+
+Decision: 
+
+### Group 3: wording and process
+
+#### F. Evidence wording: consistent sentences, and drop "court-admissible"
+
+**Background.** Each finding has an *evidence sentence* a reviewer reads. Today the three
+detectors word them differently:
+- DNS: "Subdomain 'x' of 'p' has Shannon entropy 4.40 (benign baseline ~2.5), length 40 chars, with 200 queries in 60s…"
+- Beacon: "Host A contacted B every ~60s (±1.2s) over 10 connections (coefficient of variation 0.020, threshold 0.1)…"
+- Port scan: "Source A reached 850 distinct destination ports (threshold 100) and … within a 10s window…"
+
+They differ in what they name, where the threshold appears, and units. Separately, the
+project text calls the evidence layer "**court-admissible**" (`CLAUDE.md` line 5; `docs/logic.md`
+already advises against it, and risk #3 in `handoff.md` is still open). *Admissible* means a court will accept it as evidence, which
+depends on law and procedure we cannot certify. What the tool *does* prove is narrower: a
+file has not changed since it was sealed, and the log of what was done to it has not been
+silently altered. That is **tamper-evident / evidentiary integrity**, "designed toward"
+admissibility.
+
+**Options.**
+1. **One fixed template for every sentence** (what was measured, the value, the cutoff, the
+   plain-language meaning, in that order) and replace "court-admissible" everywhere with
+   "tamper-evident / designed toward admissibility". *Pro:* consistent, defensible under
+   questioning ("prove it"). *Con:* touches detector code (core) and several docs.
+2. **Reword only the claims** (docs and README), leave sentences. *Pro:* small and quick.
+   *Con:* sentences stay uneven.
+3. **Leave both as is.** *Pro:* no work. *Con:* an overclaim an expert could attack.
+
+**Recommendation:** option 1, in two steps: claims first (docs only, immediate), sentences
+as core code under the mode chosen in G.
+
+Decision: 
+
+#### G. How should the next pieces be built? (threshold tuning, SSDP fix, evidence wording, JA3 code)
+
+**Background.** Questions D, E, F and the JA3 code are *core logic* (the parts that decide
+what is flagged and what a finding says). You decide how they are built. A *worktree* (the
+git feature that gives a second working folder on the same repository, so two people never
+overwrite each other's files) is how agents already work separately.
+
+**Options.**
+1. **Jim builds, explaining before each change, and you approve each pull request before
+   it merges.** *Pro:* fast; the explanation is in the pull request for you to read at your
+   pace. *Con:* you read finished code, so you learn by reviewing rather than by shaping
+   it.
+2. **Line-by-line pairing:** explain a piece, write one piece, stop for your review, repeat.
+   *Pro:* you learn most; you steer every decision. *Con:* slowest; needs you present at
+   each step.
+
+This already applies to the evidence-layer steps 3-5 (option 1, your decision of
+2026-10-20). Today the older pairing rule still covers the rest until you say otherwise.
+
+**Recommendation:** option 1 for D, E and F (small, well-specified); option 2 for the JA3
+build (new, concept-heavy, and you said you want to learn the concepts).
+
+Decision: 
