@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 from backend.db import sqlite_db
 from backend.db.interfaces import CustodyAppendError, validate_case_id
-from backend.db.serialization import custody_entry_from_dict, to_jsonable
 from backend.models import CustodyEntry
 
 _COLUMNS = "case_id, idx, timestamp, event_type, detail, prev_hash, entry_hash, payload_json"
@@ -72,30 +72,27 @@ class SqliteCustodyLog:
 
 
 def _to_row(entry: CustodyEntry) -> tuple[object, ...]:
-    data = to_jsonable(entry)
     return (
-        data["case_id"],
-        data["index"],
-        data["timestamp"],
-        data["event_type"],
-        data["detail"],
-        data["prev_hash"],
-        data["entry_hash"],
-        json.dumps(data["payload"]),
+        entry.case_id,
+        entry.index,
+        entry.timestamp.isoformat(),
+        entry.event_type,
+        entry.detail,
+        entry.prev_hash,
+        entry.entry_hash,
+        json.dumps(entry.payload),
     )
 
 
 def _from_row(row: tuple[object, ...]) -> CustodyEntry:
     case_id, index, timestamp, event_type, detail, prev_hash, entry_hash, payload = row
-    return custody_entry_from_dict(
-        {
-            "case_id": case_id,
-            "index": index,
-            "timestamp": timestamp,
-            "event_type": event_type,
-            "detail": detail,
-            "prev_hash": prev_hash,
-            "entry_hash": entry_hash,
-            "payload": json.loads(str(payload)),
-        }
+    return CustodyEntry(
+        case_id=str(case_id),
+        index=int(index),
+        timestamp=datetime.fromisoformat(str(timestamp)),
+        event_type=str(event_type),
+        detail=str(detail),
+        prev_hash=str(prev_hash),
+        entry_hash=str(entry_hash),
+        payload=json.loads(str(payload)),
     )

@@ -73,7 +73,7 @@ def _analyze_and_commit(
     except Exception:
         storage.evidence.discard_staged(case_id)
         raise
-    storage.evidence.commit(staged, record.seal.pcap_hash)
+    storage.evidence.commit(staged, record.seal.sha256_hash)
     return record
 
 

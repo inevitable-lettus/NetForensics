@@ -56,7 +56,7 @@ def test_garbage_upload_is_400_and_leaves_no_case_behind(client: TestClient, tmp
     assert response.status_code == 400
     staging = tmp_path / "store" / "staging"
     assert not staging.exists() or not any(staging.iterdir())
-    assert not (tmp_path / "store" / "objects").exists()
+    assert not (tmp_path / "store" / "blobs").exists()
 
 
 def test_oversize_upload_is_413(tmp_path: Path):
@@ -74,8 +74,8 @@ def test_unknown_and_malformed_case_ids_are_404(client: TestClient):
 
 def test_upload_commits_pcap_to_its_content_address(client: TestClient, tmp_path: Path):
     data = _beacon_pcap_bytes(tmp_path)
-    digest = _upload(client, "beacon.pcap", data).json()["seal"]["pcap_hash"]
-    stored = tmp_path / "store" / "objects" / digest[:2] / digest
+    digest = _upload(client, "beacon.pcap", data).json()["seal"]["sha256_hash"]
+    stored = tmp_path / "store" / "blobs" / digest
     assert stored.read_bytes() == data
     assert not any((tmp_path / "store" / "staging").iterdir())
 
