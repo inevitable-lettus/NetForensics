@@ -24,9 +24,10 @@ arithmetic shown in the text), not estimated.
 7. [Current thresholds and what they mean](#7-current-thresholds-and-what-they-mean)
 8. [Evidence storage: SQLite and content-addressed files](#8-evidence-storage-sqlite-and-content-addressed-files)
 9. [Trusted-timestamp transport and retry](#9-trusted-timestamp-transport-and-retry)
-10. [Not built yet](#10-not-built-yet)
-11. [JA3 fingerprinting (proposed)](#11-ja3-fingerprinting-proposed)
-12. [Open questions for Garv](#12-open-questions-for-garv)
+10. [Custody hash chain](#10-custody-hash-chain)
+11. [Not built yet](#11-not-built-yet)
+12. [JA3 fingerprinting (proposed)](#12-ja3-fingerprinting-proposed)
+13. [Open questions for Garv](#13-open-questions-for-garv)
 
 ## Words used throughout
 
@@ -90,7 +91,7 @@ of the file plus a list of findings, viewable as JSON and as a PDF.
 - Only classic pcap, Ethernet, IPv4, TCP and UDP. No pcapng, no IPv6, no live capture.
 - The database refuses edits made through normal SQL, but someone with write access to
   the database file can still change it. Proving nothing changed needs the custody
-  chain and its timestamped head (section 10).
+  chain and its timestamped head (sections 10 and 11).
 - The PDF is minimal; it will grow once the custody chain exists.
 
 ---
@@ -384,7 +385,7 @@ existed, is a later step. Until it happens the seal's status is `PENDING`.
   does not prove the date to a third party.
 - The hash is stored in the append-only database (section 8), which blocks edits through
   normal SQL, but a person with write access to the database file could still change it.
-  Closing that gap is what the custody chain and its timestamped head are for (section 10).
+  Closing that gap is what the custody chain and its timestamped head are for (sections 10 and 11).
 - Hash-checking on re-open (verification) is not built yet; today the seal is only written.
 
 ---
@@ -533,25 +534,83 @@ header-drip test stops at 2.0s instead of running past 70s.
 
 ---
 
-## 10. Not built yet
+## 10. Custody hash chain
+
+_Issue #10, PR #19 (core; human review)._
+
+**What it does.** Turns the custody log (ingest, parse, each finding, report…) into
+a chain where changing, removing, inserting or reordering any entry is detectable,
+and tells you the first entry where the chain breaks and why.
+
+**Concepts, one line each.**
+- *Hash (SHA-256)* — a function that turns any bytes into a 64-hex-character
+  fingerprint. The same input always gives the same fingerprint; changing one
+  character gives a completely different one; nobody can find two inputs with the
+  same fingerprint in practice.
+- *Hash chain* — each entry stores the fingerprint of the entry before it, and its
+  own fingerprint covers that stored value, so the entries are linked like a chain.
+- *Genesis* — the start of the chain. Entry 0 links to a fingerprint of the
+  evidence seal instead of to an earlier entry.
+- *Canonical form* — one agreed way to turn an entry into bytes, so the writer and
+  a later checker always hash exactly the same thing.
+- *Domain separation* — putting a fixed label in front of the bytes before hashing
+  ("custody-entry/v1" vs "custody-genesis/v1"), so two different uses of the hash
+  can never be confused.
+
+**How it works, step by step.**
+1. Genesis: hash the seal's BLAKE3 and SHA-256 digests, size, filename and
+   received-at time → `G`. Entry 0's `prev_hash` is `G`.
+2. Each new entry gets `index = previous index + 1` and `prev_hash = previous
+   entry's hash`.
+3. The entry's own hash = SHA-256 of the label, a zero byte, then the entry written
+   as compact JSON with sorted keys (every field except the hash itself). Times are
+   always UTC with 6 decimal places; decimal numbers are refused (store `"4.2"` as text).
+4. To verify, walk from entry 0: right index? right case? does `prev_hash` equal
+   `G` (entry 0) or the previous entry's hash? does recomputing the hash give the
+   stored value? The first "no" is reported with its index and the two hashes.
+
+**Worked example (real values, first 12 hex chars shown).** For the test seal
+(`capture.pcap`, 1234 bytes, received 2026-10-20 12:00:00 UTC):
+- `G` = `f3504c93b047…`
+- Entry 0 "Sealed capture.pcap": `prev_hash = f3504c93b047…`, hash `3c7536eb3105…`
+- Entry 1 "C2 beacon 10.0.0.5 → 203.0.113.7": `prev_hash = 3c7536eb3105…`, hash `8f9bdacece85…`
+
+Someone edits entry 0's text to "Sealed other.pcap". Recomputing entry 0 now gives
+`bd2c71d847e2…`, not the stored `3c7536eb3105…` → "entry 0 was altered". If they
+also overwrite the stored hash with `bd2c71d847e2…`, entry 1's `prev_hash`
+(`3c7536eb3105…`) no longer matches → "entry 1 does not link to entry 0". To hide
+the edit they must rewrite every later entry too.
+
+You can reproduce `G` with no project code (see PR #19 for the exact `printf |
+shasum -a 256` command).
+
+**Limits.**
+- Deleting the **last** entries leaves a shorter chain that is still valid.
+- There is no secret: someone with write access to the database can rewrite an entry
+  and recompute every later hash, and the result verifies.
+- Both are closed by #12: an outside Timestamp Authority signs the newest entry's
+  hash, so a shorter or recomputed chain no longer matches what was signed.
+
+---
+
+## 11. Not built yet
 
 Listed so nobody mistakes a plan for a feature. Each gets its own section above when it
 lands (standing rule).
 
-- **Hash-chained custody log:** every event appended as an entry that includes the
-  previous entry's hash, so editing or deleting one breaks every later link. Data shapes
-  exist (`CustodyEntry`); the logic does not.
+- **Custody log wired into uploads:** the chain logic exists (section 10) but the API
+  does not append entries yet; a small follow-up now that the SQLite store exists.
 - **RFC 3161 token building and checking:** a third party signs "this hash existed at
   this time". The transport and retry are built (section 9); building the request and
   checking the returned token is #11, so seals stay `PENDING` until then.
 - **Case verification and the tamper demo:** re-hash the stored file, compare to the seal,
   walk the chain. The 10-second flip-one-byte demonstration.
 - **JA3 fingerprinting (4th detector):** matches TLS handshake fingerprints to a known
-  malware list. Deliberately deferred; proposal in section 11.
+  malware list. Deliberately deferred; proposal in section 12.
 
 ---
 
-## 11. JA3 fingerprinting (proposed)
+## 12. JA3 fingerprinting (proposed)
 
 _Status: concept draft for human approval. No JA3 code exists yet. Written 2026-10-20._
 
@@ -641,11 +700,11 @@ No small public capture with a known SSLBL hit has a clear licence. Plan:
 - One detector module, one finding per (client IP, JA3), the same interface as the other three.
 
 ### Open questions
-The five decisions this feature needs are in section 12, question C.
+The five decisions this feature needs are in section 13, question C.
 
 ---
 
-## 12. Open questions for Garv
+## 13. Open questions for Garv
 
 Read the whole document first, then decide here in one sitting. Each question stands
 alone: terms are defined where they first appear in that question, there is a small
@@ -810,9 +869,9 @@ what is on the wire (about 55 bytes), and evidence should state what is true.
 
 Decision: 
 
-#### C. JA3 fingerprinting: five questions (Dwight's draft, section 11)
+#### C. JA3 fingerprinting: five questions (Dwight's draft, section 12)
 
-Read section 11 first; it explains what **TLS** (the encryption behind HTTPS), the
+Read section 12 first; it explains what **TLS** (the encryption behind HTTPS), the
 ClientHello, JA3, MD5, GREASE, and the blocklist are. In short: JA3 turns how a program
 introduces itself during the TLS handshake into a 32-character label, then checks the label
 against a list of labels seen in malware.
