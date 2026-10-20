@@ -59,21 +59,22 @@ pcap file
 Integrity verification re-hashes the stored pcap and compares against the seal record;
 a mismatch flags broken chain of custody (see [`logic.md`](logic.md)).
 
-## Proposed repo layout (proposed / to confirm)
+## Repo layout
 
 ```
 NetForensics/
 ├── CLAUDE.md
-├── docs/                  architecture.md · logic.md · handoff.md
-├── backend/               (proposed)
-│   ├── ingest/            Stage 1 — hashing + timestamping (seal)
+├── docs/                  architecture.md · logic.md · handoff.md · plan.md
+├── backend/
+│   ├── ingest/            upload validation (pcap magic/format checks)
 │   ├── parse/             Stage 2 — dpkt + PyShark flow reconstruction
-│   ├── detectors/         Stage 3 — one module per detector (dns_exfil, c2_beacon, port_scan, ja3_fingerprint)
-│   ├── evidence/          custody log + integrity verification
+│   ├── detectors/         Stage 3 — one module per detector (dns_exfil, c2_beacon, port_scan; ja3_fingerprint planned)
+│   ├── evidence/          Stage 1 — seal (BLAKE3 + SHA-256); custody log + verification (in progress)
 │   ├── report/            Stage 4 — PDF generation
-│   ├── db/                SQLite schema + access
+│   ├── db/                case store + serialization (interim JSON per case; SQLite planned, Phase 3 step 6)
 │   └── api/               FastAPI routes (upload, analyze, verify, report)
-├── frontend/              (proposed) React dashboard
+├── pipeline.py            orchestrator: seal first, then parse and detect
+├── frontend/              React + Vite + TypeScript UI
 └── sample-pcaps/          curated demo captures (each must fire ≥1 detector)
 ```
 

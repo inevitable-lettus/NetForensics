@@ -111,6 +111,28 @@ This is the product. Make tamper-evidence genuine, not cosmetic.
 **Checkpoint:** flip one byte of a sealed pcap → re-verify → the tool declares the evidence
 altered and the chain broken. *This 10-second demo is the pitch.*
 
+### Phase 3 — step plan (reconstructed 2026-10-20)
+
+> Reconstructed from the step list in [`handoff.md`](handoff.md). The original plan file
+> (`~/.claude/plans/update-handoff-md-to-fix-peaceful-treehouse.md`) is lost. Treat the
+> bullets under each step as intent, not as a record of decisions already made. Status
+> lives in `handoff.md`.
+
+Chain: dual-hash seal → RFC 3161 timestamp (`PENDING`, retried when offline) →
+hash-chained custody → verify, persisted append-only in SQLite, driven by a CLI tamper
+demo.
+
+| Step | Mode | Work | Status |
+|---|---|---|---|
+| 1 | plumbing | Shared shapes + config: `SealRecord` with both hashes and a timestamp status, `CustodyEntry.case_id`, `CheckResult` / `VerificationReport`. | done |
+| 2 | `[CORE]` | Streaming dual-hash seal (BLAKE3 + SHA-256 in one pass). `hash_file` → `FileDigests` (shared with verify); `seal_pcap` → seal with `PENDING` timestamp. | done |
+| 3 | `[CORE]` | Hash-chained custody (`backend/evidence/custody.py`): each entry embeds the prior entry's hash. | next |
+| 4 | `[CORE]` | RFC 3161 timestamp request and verify (`backend/evidence/timestamp.py`); offline falls back to `PENDING` and retries (risk #1). | todo |
+| 5 | `[CORE]` | Case verification and chain-head anchoring (`backend/evidence/verify.py`): re-hash the stored pcap, compare to the seal, walk the chain. | todo |
+| 6 | plumbing | SQLite append-only store (no update/delete) and a content-addressed evidence store; replaces the interim JSON case store. | todo |
+| 7 | plumbing | CLI including `tamper-demo` (flip one byte → re-verify → flagged). | todo |
+| 8 | docs | `logic.md` mechanism section, risks #1 and #5 marked resolved in `handoff.md`, `CLAUDE.md` commands. | todo |
+
 ---
 
 ## Phase 4 — Report, polish & demo hardening  ·  *(mostly `[INDEP]`)*

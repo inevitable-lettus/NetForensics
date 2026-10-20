@@ -14,7 +14,7 @@ page). Three of four detectors done
 (DNS exfil, C2 beacon, port scan). JA3 fingerprinting **deliberately deferred** (user
 call, 2026-09-19) — evidence layer gets built out fully first. Test suite green
 (**92 passed**). Plan:
-`~/.claude/plans/update-handoff-md-to-fix-peaceful-treehouse.md` — dual-hash seal →
+[`plan.md`](plan.md) "Phase 3 — step plan (reconstructed 2026-10-20)" — dual-hash seal →
 RFC 3161 timestamp (PENDING + retry offline) → hash-chained custody → verify, persisted
 append-only in SQLite, driven by a CLI tamper demo.
 
@@ -51,12 +51,13 @@ append-only in SQLite, driven by a CLI tamper demo.
 - **Port-scan detector** (`backend/detectors/port_scan.py`) — groups by `src_ip`,
   O(n) two-pointer sliding window for peak distinct ports/hosts per `window_secs`.
   Tests in `tests/test_port_scan.py`. Committed `4b533b6`.
-- Full suite: **60 passed.**
+- Full suite: **92 passed** (as of 2026-09-21).
 
 ## Next up (Phase 1 — Vertical slice)
 
 Per [`../plan.md`](../plan.md) file/phase order; ownership tags superseded — see
-"Collaboration model" above. User writes every item solo, Claude explains + reviews.
+"Collaboration model" above: `[CORE]` items are pairing/teaching mode, plumbing is
+written directly.
 
 - [x] BLAKE3 seal function (pcap → `SealRecord`) — `backend/evidence/seal.py`.
       Smoke-tested manually (temp file → correct `SealRecord`, all fields populated).
