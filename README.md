@@ -117,6 +117,7 @@ docs/
 ├── architecture.md    system structure, pipeline, stack, dependency risks
 ├── logic.md           detector formulas, thresholds, evidence-layer mechanics
 ├── handoff.md         living build state — read this for where things stand
+├── dev-notes.md       plain-language explanations with worked examples
 └── plan.md            phased build roadmap
 tests/                 one test module per detector/parser, crafted fixtures
 scripts/               environment checks
@@ -129,6 +130,7 @@ sample-pcaps/          curated captures for exercising each detector (git-ignore
 - [`docs/logic.md`](docs/logic.md) — exact detector formulas and the evidence contract
 - [`docs/handoff.md`](docs/handoff.md) — current phase, session log, open decisions
 - [`docs/plan.md`](docs/plan.md) — the phased build roadmap
+- [`docs/dev-notes.md`](docs/dev-notes.md) — plain-language explanations of everything built, with worked examples
 
 ## License
 

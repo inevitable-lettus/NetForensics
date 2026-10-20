@@ -32,6 +32,7 @@ current build state, what to do next, and open decisions.
 | [`docs/handoff.md`](docs/handoff.md) | **Living state** — current phase, done/next, open risks, session log. Read first. |
 | [`docs/architecture.md`](docs/architecture.md) | System structure — pipeline, stack, data flow, repo layout, dependency risks. |
 | [`docs/logic.md`](docs/logic.md) | Business rules — detector formulas/thresholds, evidence-layer mechanics, explainability contract. |
+| [`docs/dev-notes.md`](docs/dev-notes.md) | **Plain-language explanations for the human** — what each built piece does, how, the concepts and math with worked examples, and its limits. |
 
 The earliest proposal draft and a flow diagram exist locally (git-ignored, not published)
 as historical source material — the docs above are the authoritative, extracted versions.
@@ -175,6 +176,23 @@ cd frontend && npm install && npm run dev
 
 External system dep: **tshark** (Wireshark) for the PyShark parse path — `brew
 install wireshark`. Not a pip package; the dpkt path runs without it.
+
+## Dev notes (standing rule, 2026-10-20)
+
+Every PR that builds something adds or updates its section in
+[`docs/dev-notes.md`](docs/dev-notes.md). The reader is the human owner, who is learning
+the concepts, so write for them:
+
+- **What it does** and **how it works, step by step**.
+- **Every concept used** (crypto, statistics, networking) explained in plain language.
+  No jargon without a one-line definition on first use.
+- **Math shown with a small worked example using real numbers.** Compute them with the
+  project's own code or plain arithmetic; never estimate.
+- **Its limits**: what it misses, when it false-alarms, what is not built.
+- Keep the index, the "Current thresholds" table and "Not built yet" list in step with
+  the code. A PR that changes a threshold in `backend/config.py` updates the table.
+- If a PR builds nothing user-visible (pure docs, CI), say "no dev-notes change" in the
+  PR description.
 
 ## Doc maintenance
 
