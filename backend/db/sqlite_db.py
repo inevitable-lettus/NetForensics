@@ -112,7 +112,8 @@ def _append_only_triggers() -> str:
     statements.append(
         "CREATE TRIGGER IF NOT EXISTS seals_timestamp_once BEFORE UPDATE ON seals "
         "WHEN NOT (OLD.timestamp_status = 'pending' AND NEW.timestamp_status = 'granted'"
-        " AND length(NEW.rfc3161_token) > 0 AND NEW.timestamp_gen_time IS NOT NULL"
+        " AND NEW.rfc3161_token IS NOT NULL AND length(NEW.rfc3161_token) > 0"
+        " AND NEW.timestamp_gen_time IS NOT NULL"
         f" AND NEW.tsa_url IS NOT NULL AND {unchanged}) "
         f"BEGIN SELECT RAISE(ABORT, '{SEAL_UPDATE_REJECTED}'); END;"
     )

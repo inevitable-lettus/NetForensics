@@ -88,6 +88,10 @@ def test_record_timestamp_on_unknown_case_not_found(db_path: Path):
         "UPDATE seals SET sha256_hash = 'forged', timestamp_status = 'granted',"
         " rfc3161_token = x'00', timestamp_gen_time = 't', tsa_url = 'u'",
         "UPDATE seals SET timestamp_status = 'granted'",  # no token
+        "UPDATE seals SET timestamp_status = 'granted', rfc3161_token = NULL,"
+        " timestamp_gen_time = 't', tsa_url = 'u'",  # NULL token: length() is NULL
+        "UPDATE seals SET timestamp_status = 'granted', rfc3161_token = x'',"
+        " timestamp_gen_time = 't', tsa_url = 'u'",  # empty token
         "DELETE FROM seals",
         "UPDATE cases SET flow_count = 0",
         "DELETE FROM cases",
