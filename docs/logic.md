@@ -36,7 +36,16 @@ This is the real product. Make tamper-evidence *genuine*, not cosmetic.
 - Every event (ingest, parse, each finding, report export) is appended as an entry.
 - **Each entry references the prior entry** (e.g. includes the previous entry's hash) so
   the log is a tamper-evident chain — you cannot alter or remove an entry without
-  breaking every subsequent link. **(mechanism proposed / to confirm: hash-chained entries)**
+  breaking every subsequent link. **Decided and built (issue #10, `backend/evidence/custody.py`):**
+  `entry_hash = SHA-256("netforensics/custody-entry/v1" ‖ 0x00 ‖ canonical JSON of every
+  other field incl. payload)`; canonical JSON = sorted keys, no whitespace, raw UTF-8,
+  no floats (stored as strings), timestamps UTC with 6 fractional digits. Entry 0's
+  `prev_hash` = SHA-256 of the seal's digests, size, filename and `received_at` under a
+  separate `custody-genesis/v1` tag, so a chain cannot be moved onto other evidence. The
+  module docstring is the byte-exact spec.
+- **Limits (stated, not hidden):** the chain alone cannot detect removal of the *last*
+  entries, and anyone with write access can recompute a rewritten chain (no secret).
+  Both are closed by anchoring the chain head with an RFC 3161 timestamp (#12).
 - The log is append-only: no in-place edits, no deletes.
 
 ### Integrity verification (the headline flow)
