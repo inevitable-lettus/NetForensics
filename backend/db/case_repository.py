@@ -90,6 +90,15 @@ class SqliteCaseRepository:
         if cursor.rowcount == 0:
             raise CaseNotFoundError(case_id)
 
+    def pending_timestamp_case_ids(self) -> tuple[str, ...]:
+        """Cases whose seal still waits for a TSA token, oldest first."""
+        with sqlite_db.connect(self.db_path) as connection:
+            rows = connection.execute(
+                "SELECT seals.case_id FROM seals JOIN cases USING (case_id)"
+                " WHERE timestamp_status = 'pending' ORDER BY cases.created_at, case_id"
+            ).fetchall()
+        return tuple(row[0] for row in rows)
+
     @staticmethod
     def _insert_case(connection: sqlite3.Connection, record: CaseRecord) -> None:
         connection.execute(

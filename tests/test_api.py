@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ from fastapi.testclient import TestClient
 from backend.api.app import create_app
 from backend.config import Config, EvidenceConfig, IngestConfig
 from backend.db.storage import Storage
+from backend.evidence.tsa_client import TsaUnavailableError
 from tests.fixtures.packets import syn_frame, write_timed_pcap
 
 
@@ -101,3 +103,33 @@ def test_reupload_over_corrupt_stored_blob_is_409(client: TestClient, tmp_path: 
     response = _upload(client, "beacon.pcap", data)
     assert response.status_code == 409
     assert "altered" in response.json()["detail"]
+def _client_with_timestamper(tmp_path: Path, timestamper) -> TestClient:
+    return TestClient(create_app(_storage(tmp_path / "store"), timestamper=timestamper))
+
+
+def test_tsa_unavailable_at_ingest_still_stores_pending_case(tmp_path: Path):
+    def unavailable(_sha256: str):
+        raise TsaUnavailableError("network off")
+
+    client = _client_with_timestamper(tmp_path, unavailable)
+    response = _upload(client, "beacon.pcap", _beacon_pcap_bytes(tmp_path))
+    assert response.status_code == 201
+    assert response.json()["seal"]["timestamp_status"] == "pending"
+
+
+def test_unexpected_timestamper_error_never_fails_the_upload(tmp_path: Path):
+    def broken(_sha256: str):
+        raise ValueError("bad token")
+
+    client = _client_with_timestamper(tmp_path, broken)
+    response = _upload(client, "beacon.pcap", _beacon_pcap_bytes(tmp_path))
+    assert response.status_code == 201
+    assert response.json()["seal"]["timestamp_status"] == "pending"
+
+
+def test_tsa_reply_at_ingest_grants_the_seal(tmp_path: Path):
+    gen_time = datetime(2026, 10, 20, 12, 0, tzinfo=timezone.utc)
+    client = _client_with_timestamper(tmp_path, lambda _sha256: (b"token", gen_time))
+    seal = _upload(client, "beacon.pcap", _beacon_pcap_bytes(tmp_path)).json()["seal"]
+    assert seal["timestamp_status"] == "granted"
+    assert seal["timestamp_gen_time"] == gen_time.isoformat()

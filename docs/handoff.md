@@ -181,6 +181,16 @@ language, no code) → user researches + writes it → user asks for help only i
 | 11 | **Interim JSON case store** | `CaseStore` keeps one JSON file per case until the SQLite append-only store (Phase 3 step 6); no tamper-evidence there yet. | RESOLVED by step 6 (PR #13): SQLite append-only tables + triggers; tamper-evidence itself comes from the custody chain (#10) + anchoring (#12). |
 | 12 | **Stale README status** | README listed the upload API, orchestrator, PDF and frontend as unbuilt and said 60 tests; suite is 92. | RESOLVED by this refresh PR. |
 
+- **2026-10-20 (cont.)** — **Issue #3 TSA transport + retry (plumbing, PR #14)**:
+  `backend/evidence/tsa_client.py` — `request_timestamp` (POST DER query, typed
+  `TsaUnavailableError` on timeout/DNS/refused/non-200/empty body, no retries),
+  `retry_pending` / `retry_all_pending` driving an injected timestamper
+  `(sha256_hex) -> (token, gen_time)` (the core hook from #11) with capped exponential
+  backoff (`EvidenceConfig.tsa_retry_*`). `create_app(timestamper=...)` makes ONE
+  attempt at ingest; any failure leaves PENDING and never fails the upload.
+  `CaseRepository.pending_timestamp_case_ids()` added. httpx moved to runtime deps.
+  After Pam's review: total reply deadline + 64 KiB cap, lost race → ALREADY_GRANTED,
+  empty token → ERROR, attempts ≥ 1, batch circuit breaker. Suite **158 passed**. The token is stored, not verified — that is #11/#12.
 - **2026-10-20 (cont.)** — **Phase 3 step 6 (plumbing, issue #2, PR #13) built** ahead
   of core steps 3-5, so the core has a storage contract to plug into. SQLite
   (`evidence.db_path`): `cases`, `seals` (every `SealRecord` field, token as BLOB),

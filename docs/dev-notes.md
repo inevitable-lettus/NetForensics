@@ -23,7 +23,8 @@ arithmetic shown in the text), not estimated.
 6. [The seal: hashing the evidence](#6-the-seal-hashing-the-evidence)
 7. [Current thresholds and what they mean](#7-current-thresholds-and-what-they-mean)
 8. [Evidence storage: SQLite and content-addressed files](#8-evidence-storage-sqlite-and-content-addressed-files)
-9. [Not built yet](#9-not-built-yet)
+9. [Trusted-timestamp transport and retry](#9-trusted-timestamp-transport-and-retry)
+10. [Not built yet](#10-not-built-yet)
 
 ## Words used throughout
 
@@ -87,7 +88,7 @@ of the file plus a list of findings, viewable as JSON and as a PDF.
 - Only classic pcap, Ethernet, IPv4, TCP and UDP. No pcapng, no IPv6, no live capture.
 - The database refuses edits made through normal SQL, but someone with write access to
   the database file can still change it. Proving nothing changed needs the custody
-  chain and its timestamped head (section 9).
+  chain and its timestamped head (section 10).
 - The PDF is minimal; it will grow once the custody chain exists.
 
 ---
@@ -381,7 +382,7 @@ existed, is a later step. Until it happens the seal's status is `PENDING`.
   does not prove the date to a third party.
 - The hash is stored in the append-only database (section 8), which blocks edits through
   normal SQL, but a person with write access to the database file could still change it.
-  Closing that gap is what the custody chain and its timestamped head are for (section 9).
+  Closing that gap is what the custody chain and its timestamped head are for (section 10).
 - Hash-checking on re-open (verification) is not built yet; today the seal is only written.
 
 ---
@@ -409,8 +410,11 @@ original proposal.
 | `max_upload_bytes` | 512 MiB (proposed) | Larger uploads are rejected. |
 | `upload_chunk_bytes` / `hash_chunk_bytes` | 1 MiB | Read and write size for streaming; keeps memory flat. |
 | `hash_algorithm` | blake3 | Primary hash used in the seal. |
-| `tsa_url` | `https://freetsa.org/tsr` | Free timestamp authority to be used for RFC 3161 timestamps (not wired up yet). |
-| `tsa_timeout_secs` | 5 | How long to wait for the authority before falling back. |
+| `tsa_url` | `https://freetsa.org/tsr` | Free timestamp authority for RFC 3161 timestamps (transport built, section 9; token checking not built yet). |
+| `tsa_timeout_secs` | 5 | Total deadline for one request to the authority, then it counts as unavailable. |
+| `tsa_max_reply_bytes` | 64 KiB | Larger replies are refused (real ones are a few KB). |
+| `tsa_retry_attempts` / `tsa_retry_backoff_secs` / `tsa_retry_backoff_max_secs` | 3 / 2s / 30s | Retries per PENDING case, waiting 2s, 4s, … up to 30s between tries. |
+| `tsa_batch_stop_after_unavailable` | 3 | After this many cases in a row find the authority down, the rest of the run is skipped. |
 | `allow_offline_fallback` | true | If the authority cannot be reached, the seal stays `PENDING` and is retried; a timestamp is never faked. |
 | `evidence_store_dir` / `db_path` | `evidence_store`, `evidence_store/netforensics.sqlite` | Where evidence blobs and the SQLite database are kept (git-ignored). |
 
@@ -469,7 +473,65 @@ HTTP 409 "the stored copy was altered", instead of silently trusting the old fil
 
 ---
 
-## 9. Not built yet
+## 9. Trusted-timestamp transport and retry
+
+_Issue #3, PR #14._
+
+**What it does.** Sends the seal's fingerprint to an outside *Timestamp Authority*
+and stores the signed reply, without ever letting a slow or missing internet
+connection break an upload or produce a fake timestamp.
+
+**Concepts, one line each.**
+- *RFC 3161* — the internet standard for trusted timestamps: you send a hash, a
+  Timestamp Authority (TSA) signs "I saw this hash at time T" and sends back a *token*.
+- *TSA* — the outside service that signs; we use freetsa.org. Because it is a third
+  party, we cannot back-date its clock.
+- *DER* — the compact binary format RFC 3161 requests and replies are written in.
+- *PENDING / GRANTED* — the seal's timestamp state: waiting for a token, or holding one.
+- *Exponential backoff* — waiting longer after each failed try (2s, 4s, 8s…) so a
+  struggling server is not hammered.
+- *Circuit breaker* — after several failures in a row, stop trying for now instead
+  of waiting on every remaining case.
+
+**How it works, step by step.**
+1. `request_timestamp` POSTs the request bytes to the TSA with the RFC 3161 content
+   type, in a background worker that the caller waits on for at most a **total
+   deadline** (`tsa_timeout_secs`), and reads the reply against a **size cap** (`tsa_max_reply_bytes`, 64 KiB; real
+   replies are a few KB). Any timeout, connection or DNS failure, non-200 status,
+   oversized or empty reply raises `TsaUnavailableError`. It never retries itself.
+2. On upload the API makes **one** attempt. If it fails for any reason the case is
+   still stored, with the seal PENDING; the upload never fails because of the TSA.
+3. Later, `retry_all_pending` walks every PENDING case. For each it makes up to
+   `tsa_retry_attempts` tries with backoff. A token is stored through the database's
+   one-time PENDING → GRANTED rule. A lost race with another retry is reported as
+   "already granted"; an empty token is refused and reported as an error.
+4. If `tsa_batch_stop_after_unavailable` cases in a row find the TSA down, the rest
+   of the run is skipped and left PENDING for next time.
+
+**Worked example (backoff and breaker).** Defaults: 3 attempts, base 2s, cap 30s.
+After failure 1 wait min(2·2⁰, 30) = 2s; after failure 2 wait min(2·2¹, 30) = 4s;
+attempt 3 is the last, so no wait after it. One case costs at most 2 + 4 = 6s of
+waiting plus 3 request deadlines (3 × 5s = 15s), so about 21s. With the TSA down
+and 100 PENDING cases, the breaker stops after 3 cases (~63s) instead of ~35 minutes.
+
+**Worked example (deadline).** httpx's timeout counts per network read, so a server
+sending 1 byte every 0.5s — in the headers or the body — would never trip a 5s read
+timeout. So the whole request runs in a background worker and the caller waits at
+most `tsa_timeout_secs` in total, then gives up and closes the connection. With
+`tsa_timeout_secs = 2`, Pam's body-drip test stops at 2.0s instead of 49.9s, and her
+header-drip test stops at 2.0s instead of running past 70s.
+
+**Limits.**
+- This code moves bytes; it does **not** check the token. Checking the TSA's
+  signature, certificate chain, that the token covers *our* hash, and its time is
+  core work in `timestamp.py` (#11) and `verify.py` (#12). Until #11 lands, no
+  timestamper is wired in and every seal stays PENDING.
+- HTTP redirects are not followed (a 307 is treated as "unavailable"), on purpose:
+  the TSA URL is fixed configuration.
+
+---
+
+## 10. Not built yet
 
 Listed so nobody mistakes a plan for a feature. Each gets its own section above when it
 lands (standing rule).
@@ -477,8 +539,9 @@ lands (standing rule).
 - **Hash-chained custody log:** every event appended as an entry that includes the
   previous entry's hash, so editing or deleting one breaks every later link. Data shapes
   exist (`CustodyEntry`); the logic does not.
-- **RFC 3161 trusted timestamp:** a third party signs "this hash existed at this time".
-  Configured, not built; seals are `PENDING`.
+- **RFC 3161 token building and checking:** a third party signs "this hash existed at
+  this time". The transport and retry are built (section 9); building the request and
+  checking the returned token is #11, so seals stay `PENDING` until then.
 - **Case verification and the tamper demo:** re-hash the stored file, compare to the seal,
   walk the chain. The 10-second flip-one-byte demonstration.
 - **JA3 fingerprinting (4th detector):** matches TLS handshake fingerprints to a known
