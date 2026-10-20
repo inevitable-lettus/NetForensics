@@ -188,9 +188,9 @@ def test_dripping_reply_is_cut_off_at_the_total_deadline():
     config = Config(evidence=EvidenceConfig(tsa_url="https://tsa.invalid/tsr", tsa_timeout_secs=1))
     transport = httpx.MockTransport(lambda request: httpx.Response(200, stream=_Drip(40, 0.1)))
     started = time.monotonic()
-    with pytest.raises(TsaUnavailableError, match="deadline"):
+    with pytest.raises(TsaUnavailableError, match="deadline|within 1s"):
         request_timestamp(b"q", config, transport)
-    assert time.monotonic() - started < 2.0  # 40 bytes x 0.1s would take 4s
+    assert time.monotonic() - started < 1.5  # 40 bytes x 0.1s would take 4s
 
 
 def test_oversized_reply_is_refused():
@@ -244,3 +244,18 @@ def test_batch_circuit_breaker_skips_the_rest_when_tsa_is_down(
     assert all(r.outcome is RetryOutcome.STILL_PENDING for r in results)
     assert "Skipped" in results[-1].detail
     assert len(calls) == 9
+
+
+def test_server_that_never_finishes_its_headers_is_cut_off_at_the_deadline():
+    """MockTransport's handler stands in for headers that never complete: the
+    response object is not produced until the handler returns."""
+    config = Config(evidence=EvidenceConfig(tsa_url="https://tsa.invalid/tsr", tsa_timeout_secs=1))
+
+    def stalled_headers(request: httpx.Request) -> httpx.Response:
+        time.sleep(5)
+        return httpx.Response(200, content=b"too late")
+
+    started = time.monotonic()
+    with pytest.raises(TsaUnavailableError, match="within 1s"):
+        request_timestamp(b"q", config, httpx.MockTransport(stalled_headers))
+    assert time.monotonic() - started < 1.5

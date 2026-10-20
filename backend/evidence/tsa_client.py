@@ -13,6 +13,8 @@ the reason is reported. Storing a token is not verifying it — `verify.py` does
 
 from __future__ import annotations
 
+import contextlib
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -58,27 +60,55 @@ def request_timestamp(
     No retries here — the caller decides. `transport` lets tests stub the network.
 
     httpx timeouts apply per network operation, so a server dripping one byte at a
-    time could hold a plain request open indefinitely. The body is therefore read
-    as a stream against a total deadline (`tsa_timeout_secs`) and a size cap. The
-    worst case is the deadline plus one per-operation timeout, i.e. 2x the setting.
+    time — in the headers or the body — could hold a plain request open forever.
+    The whole exchange therefore runs in a daemon worker thread and the caller
+    waits at most `tsa_timeout_secs` in total. On timeout the client is closed to
+    release the socket; a worker stuck on a hostile server is abandoned (daemon, so
+    it can never block process exit). The body is also size-capped.
     """
     url = config.evidence.tsa_url
     timeout = config.evidence.tsa_timeout_secs
-    deadline = time.monotonic() + timeout
-    try:
-        with httpx.Client(transport=transport, timeout=timeout) as client:
-            with client.stream(
-                "POST",
-                url,
-                content=request_der,
-                headers={"Content-Type": _QUERY_CONTENT_TYPE, "Accept": _REPLY_CONTENT_TYPE},
-            ) as response:
-                if response.status_code != 200:
-                    raise TsaUnavailableError(f"TSA {url} answered HTTP {response.status_code}.")
-                body = _read_bounded(response, url, deadline, config.evidence.tsa_max_reply_bytes)
-    except httpx.HTTPError as error:  # timeouts, DNS, refused connections, ...
+    client = httpx.Client(transport=transport, timeout=timeout)
+    outcome: dict[str, object] = {}
+
+    def exchange() -> None:
+        try:
+            outcome["body"] = _post_and_read(client, request_der, config, time.monotonic() + timeout)
+        except BaseException as error:  # handed to the caller below
+            outcome["error"] = error
+
+    worker = threading.Thread(target=exchange, name="tsa-request", daemon=True)
+    worker.start()
+    worker.join(timeout)
+    with contextlib.suppress(Exception):
+        client.close()
+    if worker.is_alive():
+        raise TsaUnavailableError(f"TSA {url} gave no complete reply within {timeout}s.")
+    return _unwrap(outcome, url)
+
+
+def _post_and_read(client: httpx.Client, request_der: bytes, config: Config, deadline: float) -> bytes:
+    url = config.evidence.tsa_url
+    with client.stream(
+        "POST",
+        url,
+        content=request_der,
+        headers={"Content-Type": _QUERY_CONTENT_TYPE, "Accept": _REPLY_CONTENT_TYPE},
+    ) as response:
+        if response.status_code != 200:
+            raise TsaUnavailableError(f"TSA {url} answered HTTP {response.status_code}.")
+        return _read_bounded(response, url, deadline, config.evidence.tsa_max_reply_bytes)
+
+
+def _unwrap(outcome: dict[str, object], url: str) -> bytes:
+    """Turn the worker's result into bytes or a typed TsaUnavailableError."""
+    error = outcome.get("error")
+    if isinstance(error, httpx.HTTPError):  # timeouts, DNS, refused connections, ...
         raise TsaUnavailableError(f"TSA {url} unreachable: {error!r}") from error
-    if not body:
+    if isinstance(error, BaseException):
+        raise error
+    body = outcome.get("body")
+    if not isinstance(body, bytes) or not body:
         raise TsaUnavailableError(f"TSA {url} answered HTTP 200 with an empty body.")
     return body
 

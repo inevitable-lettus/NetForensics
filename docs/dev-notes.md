@@ -495,8 +495,8 @@ connection break an upload or produce a fake timestamp.
 
 **How it works, step by step.**
 1. `request_timestamp` POSTs the request bytes to the TSA with the RFC 3161 content
-   type. It reads the reply as a stream against a **total deadline**
-   (`tsa_timeout_secs`) and a **size cap** (`tsa_max_reply_bytes`, 64 KiB; real
+   type, in a background worker that the caller waits on for at most a **total
+   deadline** (`tsa_timeout_secs`), and reads the reply against a **size cap** (`tsa_max_reply_bytes`, 64 KiB; real
    replies are a few KB). Any timeout, connection or DNS failure, non-200 status,
    oversized or empty reply raises `TsaUnavailableError`. It never retries itself.
 2. On upload the API makes **one** attempt. If it fails for any reason the case is
@@ -515,9 +515,11 @@ waiting plus 3 request deadlines (3 × 5s = 15s), so about 21s. With the TSA dow
 and 100 PENDING cases, the breaker stops after 3 cases (~63s) instead of ~35 minutes.
 
 **Worked example (deadline).** httpx's timeout counts per network read, so a server
-sending 1 byte every 0.5s would never trip a 5s read timeout. Our total deadline
-stops it: with `tsa_timeout_secs = 2`, Pam's drip test is cut off at 2.0s instead
-of 49.9s. The worst case is the deadline plus one per-read timeout (2 × the setting).
+sending 1 byte every 0.5s — in the headers or the body — would never trip a 5s read
+timeout. So the whole request runs in a background worker and the caller waits at
+most `tsa_timeout_secs` in total, then gives up and closes the connection. With
+`tsa_timeout_secs = 2`, Pam's body-drip test stops at 2.0s instead of 49.9s, and her
+header-drip test stops at 2.0s instead of running past 70s.
 
 **Limits.**
 - This code moves bytes; it does **not** check the token. Checking the TSA's
