@@ -71,7 +71,7 @@ NetForensics/
 │   ├── detectors/         Stage 3 — one module per detector (dns_exfil, c2_beacon, port_scan; ja3_fingerprint planned)
 │   ├── evidence/          Stage 1 — seal (BLAKE3 + SHA-256); custody log + verification (in progress)
 │   ├── report/            Stage 4 — PDF generation
-│   ├── db/                case store + serialization (interim JSON per case; SQLite planned, Phase 3 step 6)
+│   ├── db/                storage contracts (interfaces.py) + SQLite append-only cases/seals/findings/custody + content-addressed pcap store (blobs/<sha256>)
 │   ├── api/               FastAPI routes: create case, get case, report PDF (verify planned)
 │   └── pipeline.py        orchestrator: seal first, then parse and detect
 ├── frontend/              React + Vite + TypeScript UI
