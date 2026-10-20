@@ -105,7 +105,9 @@ a teaching explanation, human review before merge; plumbing is written directly.
       (positional append check only — hash links are core's job), `evidence_store.py`
       (`staging/<case>/` → `blobs/<sha256>`, read-only), `storage.py` factory.
       Replaces the interim JSON `case_store.py`.
-- [ ] Step 7 CLI incl. `tamper-demo`.
+- [ ] Step 7 CLI incl. `tamper-demo`. First part (issue #4): `seal`, `analyze`,
+  `retry-timestamps` in `backend/cli.py`, sharing `backend/intake.py` with the API.
+  `verify` / `tamper-demo` are stubs (exit 3) until #10/#11/#12 land.
 - [ ] Step 8 docs (logic.md mechanism, risks #1/#5 resolved, CLAUDE.md commands).
 
 ### Phase 0 — done

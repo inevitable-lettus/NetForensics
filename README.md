@@ -94,6 +94,18 @@ python scripts/check_deps.py
 python -m pytest -q
 ```
 
+Command line (no server needed; writes to `evidence_store/` unless you pass `--store DIR`):
+
+```bash
+python -m backend.cli seal capture.pcap       # seal and store; prints case id, BLAKE3, SHA-256
+python -m backend.cli analyze capture.pcap    # same, plus each finding with its evidence
+python -m backend.cli retry-timestamps        # retry seals still waiting for a trusted timestamp
+```
+
+`verify` and `tamper-demo` are listed but not built yet: they need the custody chain,
+timestamp check and case verification. Exit code 0 means success and 1 an error,
+explained in one line.
+
 `tshark` (Wireshark) is an external dependency for the PyShark parse path —
 `brew install wireshark` (macOS) or your platform's package manager. Not a pip
 package; the dpkt parse path works without it.
@@ -105,6 +117,8 @@ backend/
 ├── models.py          shared data shapes (Flow, Finding, SealRecord, CustodyEntry)
 ├── config.py          single source of truth for thresholds/baselines
 ├── pipeline.py        seal first, then parse and detect
+├── intake.py          stage, validate, seal, store: shared by the API and the CLI
+├── cli.py             command line: seal / analyze / retry-timestamps
 ├── api/               FastAPI routes (upload, case, report)
 ├── ingest/            upload validation
 ├── parse/             pcap → flow/feature extraction (dpkt, entropy)
