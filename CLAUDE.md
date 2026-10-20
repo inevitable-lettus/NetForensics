@@ -172,6 +172,12 @@ uvicorn backend.api.app:app --reload
 cd frontend && npm install && npm run dev
 
 # analyze a pcap from Python (no server): backend.pipeline.analyze_pcap(case_id, path)
+
+# CLI (no server; same intake as an upload; --store DIR for a throwaway store)
+python -m backend.cli seal <pcap>          # seal + store a case; print digests and timestamp status
+python -m backend.cli analyze <pcap>       # same, plus every finding with its evidence line
+python -m backend.cli retry-timestamps     # retry PENDING seals (needs the #11 timestamper; exit 2 while any stay PENDING)
+# verify / tamper-demo: listed, not built yet (needs #10/#11/#12), exit 3
 ```
 
 External system dep: **tshark** (Wireshark) for the PyShark parse path — `brew

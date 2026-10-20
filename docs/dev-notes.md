@@ -24,9 +24,10 @@ arithmetic shown in the text), not estimated.
 7. [Current thresholds and what they mean](#7-current-thresholds-and-what-they-mean)
 8. [Evidence storage: SQLite and content-addressed files](#8-evidence-storage-sqlite-and-content-addressed-files)
 9. [Trusted-timestamp transport and retry](#9-trusted-timestamp-transport-and-retry)
-10. [Not built yet](#10-not-built-yet)
-11. [JA3 fingerprinting (proposed)](#11-ja3-fingerprinting-proposed)
-12. [Open questions for Garv](#12-open-questions-for-garv)
+10. [The command-line tool](#10-the-command-line-tool)
+11. [Not built yet](#11-not-built-yet)
+12. [JA3 fingerprinting (proposed)](#12-ja3-fingerprinting-proposed)
+13. [Open questions for Garv](#13-open-questions-for-garv)
 
 ## Words used throughout
 
@@ -50,7 +51,8 @@ of the file plus a list of findings, viewable as JSON and as a PDF.
 
 **How it works, step by step.**
 
-1. **Upload** (`POST /api/cases`, `backend/api/app.py`). The file is written to disk in
+1. **Upload** (`POST /api/cases`, `backend/api/app.py`, or `python -m backend.cli analyze`,
+   section 10; both go through `backend/intake.py`). The file is written to disk in
    1 MiB chunks, never held whole in memory. If it passes 512 MiB the upload is cut off and
    the user gets HTTP 413 ("too large").
 2. **Validate** (`backend/ingest/pcap_validation.py`). The first 4 bytes of a pcap file are
@@ -90,7 +92,7 @@ of the file plus a list of findings, viewable as JSON and as a PDF.
 - Only classic pcap, Ethernet, IPv4, TCP and UDP. No pcapng, no IPv6, no live capture.
 - The database refuses edits made through normal SQL, but someone with write access to
   the database file can still change it. Proving nothing changed needs the custody
-  chain and its timestamped head (section 10).
+  chain and its timestamped head (section 11).
 - The PDF is minimal; it will grow once the custody chain exists.
 
 ---
@@ -384,7 +386,7 @@ existed, is a later step. Until it happens the seal's status is `PENDING`.
   does not prove the date to a third party.
 - The hash is stored in the append-only database (section 8), which blocks edits through
   normal SQL, but a person with write access to the database file could still change it.
-  Closing that gap is what the custody chain and its timestamped head are for (section 10).
+  Closing that gap is what the custody chain and its timestamped head are for (section 11).
 - Hash-checking on re-open (verification) is not built yet; today the seal is only written.
 
 ---
@@ -533,7 +535,98 @@ header-drip test stops at 2.0s instead of running past 70s.
 
 ---
 
-## 10. Not built yet
+## 10. The command-line tool
+
+_Issue #4 (first part: `seal`, `analyze`, `retry-timestamps`)._
+
+**What it does.** Lets you drive the evidence layer from a terminal, with no web server
+or browser: hand it a pcap and it seals it, stores it as a case and prints the
+fingerprints and findings. It is the base for the "flip one byte, watch verification
+fail" demo, which needs the verifier (#12) before it can be added.
+
+**Concepts, one line each.**
+- *CLI (command-line interface)* — a program you run by typing its name and options in
+  a terminal, such as `python -m backend.cli seal capture.pcap`.
+- *Subcommand* — the verb after the program name (`seal`, `analyze`, ...), like `git commit`.
+- *Exit code* — a number every program hands back when it ends. `0` means success;
+  anything else means something went wrong. Scripts and CI read it instead of the text.
+- *stdout / stderr* — a program's two output streams: normal results, and error
+  messages. Results go to stdout so they can be saved to a file without errors mixed in.
+- *TTY* — a real terminal window, as opposed to output piped into a file or another program.
+- *Intake* — the shared path a pcap takes from "offered" to "stored case"
+  (`backend/intake.py`). The web upload and the CLI both call it, so there is one way
+  to seal and store evidence, not two that could drift apart.
+
+**How it works, step by step.**
+1. `python -m backend.cli [--store DIR] <command> ...` parses the command line with
+   Python's built-in `argparse` (no new dependency). `--store DIR` puts the blobs and
+   the database under `DIR` instead of `evidence_store/`, handy for a throwaway demo.
+2. `seal <pcap>` and `analyze <pcap>` both run the full intake, exactly as an upload
+   does: the file is opened **read-only** and copied into `staging/` in 1 MiB chunks;
+   the copy is checked to be a real pcap; it is sealed (section 6), parsed and
+   analysed; the copy moves to `blobs/<sha256>`; the case is saved (section 8). Your
+   original file is never written to.
+3. `seal` then prints the case id, size, BLAKE3, SHA-256, the time received and the
+   timestamp status. `analyze` prints the same plus the flow count and every finding
+   with its *Why* and *Evidence* lines.
+4. Both run the whole analysis, not just the hash, because a case record is
+   write-once: findings cannot be added to it later. The two differ only in what they print.
+5. `retry-timestamps` walks every PENDING seal through the retry of section 9. Until
+   #11 supplies a timestamper it only counts the PENDING cases and says why they stay
+   that way. Nothing is faked.
+6. `verify` and `tamper-demo` are listed so they can be found, but they say "not built
+   yet (needs #10/#11/#12)" and exit with code 3.
+
+**Exit codes.**
+
+| Code | Meaning |
+|---|---|
+| 0 | Success (for `retry-timestamps`: nothing left PENDING) |
+| 1 | Error: missing file, not a pcap, too large, stored blob corrupt; one `error:` line on stderr |
+| 2 | `retry-timestamps` left at least one seal PENDING; also argparse's usage error |
+| 3 | Command not built yet (`verify`, `tamper-demo`) |
+
+When `verify` lands it adds its own meaning: 0 = INTACT, 1 = ALTERED, 2 = INCOMPLETE.
+
+**Worked example.** A 12-packet test capture, one connection attempt every 60 seconds
+(the fixture the tests use), run with `analyze`:
+
+```
+Case       c2b6b129754f4145bc33f97b013ad4ec
+File       beacon.pcap (864 bytes)
+BLAKE3     18cbdf6a74320b84f4b3516cab850f8ab17d97af704819db858575e7ddf73688
+SHA-256    e21071f3b192d0eee832c401d44ad446ef7e47e2c62748f7ed53c4a1d5c7f76f
+Received   2026-10-20T08:56:08.601423+00:00
+Timestamp  PENDING (retry later: python -m backend.cli retry-timestamps)
+Flows      12
+Findings   1
+
+[MEDIUM] c2_beacon: 10.0.0.5 -> 203.0.113.7
+  Why       Connection timing is far more regular than human-driven traffic — ...
+  Evidence  Host 10.0.0.5 contacted 203.0.113.7 every ~60s (±0.0s) over 12 connections
+            (coefficient of variation 0.000, threshold 0.1) — ...
+```
+
+The numbers, checked: the file is 864 bytes, so it is copied in one read
+(864 < 1 MiB = 1,048,576 bytes) and is far under the 512 MiB limit
+(536,870,912 bytes). Each of the 12 SYN packets starts a new connection, so there are
+12 flows. The gaps are exactly 60 s each, so their standard deviation is 0 and the
+coefficient of variation is 0 ÷ 60 = 0.000, under the 0.1 threshold (section 4). The
+evidence file now lives at `blobs/e21071f3…` (its SHA-256), and the exit code is 0.
+
+**Limits.**
+- No `verify` or `tamper-demo` yet: both need the custody chain (#10), the timestamp
+  check (#11) and case verification (#12). They come in a follow-up PR on #4.
+- `retry-timestamps` cannot obtain timestamps until #11 lands; it reports and exits 2.
+- The CLI keeps the web upload's 512 MiB limit, because both use the same intake.
+- No custody entry is written when a case is created yet; that stacks on the custody
+  chain PR (#19) and lands after it.
+- Output is plain text with no colour, so it reads the same in a terminal, a file or a
+  CI log. Only argparse's own `--help` may colour itself, and only in a real terminal.
+
+---
+
+## 11. Not built yet
 
 Listed so nobody mistakes a plan for a feature. Each gets its own section above when it
 lands (standing rule).
@@ -545,13 +638,14 @@ lands (standing rule).
   this time". The transport and retry are built (section 9); building the request and
   checking the returned token is #11, so seals stay `PENDING` until then.
 - **Case verification and the tamper demo:** re-hash the stored file, compare to the seal,
-  walk the chain. The 10-second flip-one-byte demonstration.
+  walk the chain. The 10-second flip-one-byte demonstration. The CLI already lists
+  `verify` and `tamper-demo` (section 10); they say "not built yet" until #12.
 - **JA3 fingerprinting (4th detector):** matches TLS handshake fingerprints to a known
-  malware list. Deliberately deferred; proposal in section 11.
+  malware list. Deliberately deferred; proposal in section 12.
 
 ---
 
-## 11. JA3 fingerprinting (proposed)
+## 12. JA3 fingerprinting (proposed)
 
 _Status: concept draft for human approval. No JA3 code exists yet. Written 2026-10-20._
 
@@ -641,11 +735,11 @@ No small public capture with a known SSLBL hit has a clear licence. Plan:
 - One detector module, one finding per (client IP, JA3), the same interface as the other three.
 
 ### Open questions
-The five decisions this feature needs are in section 12, question C.
+The five decisions this feature needs are in section 13, question C.
 
 ---
 
-## 12. Open questions for Garv
+## 13. Open questions for Garv
 
 Read the whole document first, then decide here in one sitting. Each question stands
 alone: terms are defined where they first appear in that question, there is a small
@@ -810,9 +904,9 @@ what is on the wire (about 55 bytes), and evidence should state what is true.
 
 Decision: 
 
-#### C. JA3 fingerprinting: five questions (Dwight's draft, section 11)
+#### C. JA3 fingerprinting: five questions (Dwight's draft, section 12)
 
-Read section 11 first; it explains what **TLS** (the encryption behind HTTPS), the
+Read section 12 first; it explains what **TLS** (the encryption behind HTTPS), the
 ClientHello, JA3, MD5, GREASE, and the blocklist are. In short: JA3 turns how a program
 introduces itself during the TLS handshake into a 32-character label, then checks the label
 against a list of labels seen in malware.
