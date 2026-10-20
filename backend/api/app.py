@@ -1,14 +1,12 @@
 """FastAPI routes: upload a pcap, read a case, download its PDF. HTTP concerns only
-— all analysis is delegated to `backend.pipeline`, persistence to `Storage`.
+— intake (seal, analyse, store, timestamp) is `backend.intake`, shared with the CLI.
 
 Run from the repo root:  uvicorn backend.api.app:app --reload
 """
 
 from __future__ import annotations
 
-import logging
 import uuid
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, FastAPI, File, HTTPException, Response, UploadFile
@@ -18,13 +16,11 @@ from backend.db.evidence_store import StoredEvidenceCorruptError
 from backend.db.interfaces import CaseNotFoundError, CaseRepository
 from backend.db.serialization import to_jsonable
 from backend.db.storage import Storage
-from backend.evidence.tsa_client import Timestamper, retry_pending
-from backend.ingest.pcap_validation import InvalidCaptureError, validate_pcap_file
+from backend.evidence.tsa_client import Timestamper
+from backend.ingest.pcap_validation import InvalidCaptureError
+from backend.intake import seal_and_store, stage_and_validate
 from backend.models import CaseRecord
-from backend.pipeline import analyze_pcap
 from backend.report.pdf import build_case_pdf
-
-logger = logging.getLogger(__name__)
 
 
 def create_app(
@@ -41,24 +37,20 @@ def create_app(
     def create_case(file: UploadFile = File(...)) -> dict[str, Any]:
         case_id = uuid.uuid4().hex
         try:
-            staged = storage.evidence.stage_upload(
+            staged = stage_and_validate(
+                storage,
                 case_id,
                 file.filename or "upload.pcap",
                 lambda: file.file.read(config.ingest.upload_chunk_bytes),
-                config.ingest.max_upload_bytes,
+                config,
             )
-            validate_pcap_file(staged)
         except ValueError as error:  # oversize, or InvalidCaptureError (a ValueError)
-            storage.evidence.discard_staged(case_id)
             status = 400 if isinstance(error, InvalidCaptureError) else 413
             raise HTTPException(status_code=status, detail=str(error)) from error
-        except BaseException:  # anything unexpected: never leave a staged upload behind
-            storage.evidence.discard_staged(case_id)
-            raise
-        record = _analyze_and_commit(storage, case_id, staged, config)
-        storage.cases.save(record)
-        if timestamper is not None:
-            record = _try_timestamp_once(storage.cases, case_id, timestamper, config)
+        try:
+            record = seal_and_store(storage, case_id, staged, config, timestamper)
+        except StoredEvidenceCorruptError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
         return to_jsonable(record)
 
     @router.get("/cases/{case_id}")
@@ -77,35 +69,6 @@ def create_app(
     app = FastAPI(title="NetForensics")
     app.include_router(router)
     return app
-
-
-def _analyze_and_commit(
-    storage: Storage, case_id: str, staged: Path, config: Config
-) -> CaseRecord:
-    """Seal + analyse the staged upload, then move it to its content address. The
-    seal is taken on the staged bytes; the commit is a rename, so they never change."""
-    try:
-        record = analyze_pcap(case_id, str(staged), config)
-    except Exception:
-        storage.evidence.discard_staged(case_id)
-        raise
-    try:
-        storage.evidence.commit(staged, record.seal.sha256_hash)
-    except StoredEvidenceCorruptError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
-    return record
-
-
-def _try_timestamp_once(
-    cases: CaseRepository, case_id: str, timestamper: Timestamper, config: Config
-) -> CaseRecord:
-    """One attempt at ingest so an upload never waits through backoff. Any failure
-    leaves the seal PENDING for `retry_all_pending`; it never fails the upload."""
-    try:
-        retry_pending(case_id, cases, timestamper, config, attempts=1)
-    except Exception:  # noqa: BLE001 — the case is already safely stored as PENDING
-        logger.exception("Timestamping case %s failed; seal left PENDING.", case_id)
-    return cases.load(case_id)
 
 
 def _load_or_404(cases: CaseRepository, case_id: str) -> CaseRecord:
