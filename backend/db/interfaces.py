@@ -63,6 +63,8 @@ class CaseRepository(Protocol):
         self, case_id: str, token: bytes, gen_time: datetime, tsa_url: str
     ) -> None: ...
 
+    def pending_timestamp_case_ids(self) -> tuple[str, ...]: ...
+
 
 class CustodyLog(Protocol):
     """Append-only persistence for custody entries, one ordered log per case.

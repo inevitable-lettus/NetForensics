@@ -84,6 +84,11 @@ class EvidenceConfig:
     tsa_url: str = "https://freetsa.org/tsr"
     tsa_timeout_secs: int = 5
     allow_offline_fallback: bool = True     # TSA failure -> PENDING + retry, never faked
+    # Retry of PENDING seals: attempts per case, exponential backoff between them
+    # (base * 2**n, capped). Ingest itself makes one attempt so uploads stay fast.
+    tsa_retry_attempts: int = 3
+    tsa_retry_backoff_secs: float = 2.0
+    tsa_retry_backoff_max_secs: float = 30.0
     tsa_cert_path: str = "backend/evidence/certs/freetsa_tsa.crt"
     tsa_ca_path: str = "backend/evidence/certs/freetsa_cacert.pem"
     # Local persistence (git-ignored).

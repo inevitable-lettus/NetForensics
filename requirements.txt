@@ -18,10 +18,10 @@ rfc3161-client>=0.1.2        # RFC 3161 trusted timestamping (TSA client)
 fastapi>=0.110
 uvicorn[standard]>=0.29
 python-multipart>=0.0.9      # file uploads
+httpx>=0.27                  # TSA transport client; also FastAPI TestClient
 
 # Report generation
 reportlab>=4.1
 
 # Tests
 pytest>=8.0
-httpx>=0.27                  # FastAPI TestClient

@@ -6,6 +6,7 @@ Run from the repo root:  uvicorn backend.api.app:app --reload
 
 from __future__ import annotations
 
+import logging
 import uuid
 from pathlib import Path
 from typing import Any
@@ -17,13 +18,22 @@ from backend.db.evidence_store import StoredEvidenceCorruptError
 from backend.db.interfaces import CaseNotFoundError, CaseRepository
 from backend.db.serialization import to_jsonable
 from backend.db.storage import Storage
+from backend.evidence.tsa_client import Timestamper, retry_pending
 from backend.ingest.pcap_validation import InvalidCaptureError, validate_pcap_file
 from backend.models import CaseRecord
 from backend.pipeline import analyze_pcap
 from backend.report.pdf import build_case_pdf
 
+logger = logging.getLogger(__name__)
 
-def create_app(storage: Storage | None = None, config: Config = CONFIG) -> FastAPI:
+
+def create_app(
+    storage: Storage | None = None,
+    config: Config = CONFIG,
+    timestamper: Timestamper | None = None,
+) -> FastAPI:
+    """`timestamper` is the core RFC 3161 hook (#11). Until it exists — or when the
+    TSA is unreachable — cases are stored with a PENDING seal and retried later."""
     storage = storage or Storage.open(config.evidence)
     router = APIRouter(prefix="/api")
 
@@ -47,6 +57,8 @@ def create_app(storage: Storage | None = None, config: Config = CONFIG) -> FastA
             raise
         record = _analyze_and_commit(storage, case_id, staged, config)
         storage.cases.save(record)
+        if timestamper is not None:
+            record = _try_timestamp_once(storage.cases, case_id, timestamper, config)
         return to_jsonable(record)
 
     @router.get("/cases/{case_id}")
@@ -82,6 +94,18 @@ def _analyze_and_commit(
     except StoredEvidenceCorruptError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     return record
+
+
+def _try_timestamp_once(
+    cases: CaseRepository, case_id: str, timestamper: Timestamper, config: Config
+) -> CaseRecord:
+    """One attempt at ingest so an upload never waits through backoff. Any failure
+    leaves the seal PENDING for `retry_all_pending`; it never fails the upload."""
+    try:
+        retry_pending(case_id, cases, timestamper, config, attempts=1)
+    except Exception:  # noqa: BLE001 — the case is already safely stored as PENDING
+        logger.exception("Timestamping case %s failed; seal left PENDING.", case_id)
+    return cases.load(case_id)
 
 
 def _load_or_404(cases: CaseRepository, case_id: str) -> CaseRecord:
