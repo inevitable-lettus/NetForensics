@@ -84,7 +84,7 @@ a teaching explanation, human review before merge; plumbing is written directly.
 - [x] Upload endpoint (`backend/api/app.py`, `/api/cases`), pipeline orchestrator
       (`backend/pipeline.py`), generic flow parser (`backend/parse/flow_parser.py`),
       upload validation (`backend/ingest/pcap_validation.py`), interim JSON-per-case
-      store (`backend/db/case_store.py` — replaced by SQLite in Phase 3 step 6),
+      store (`backend/db/case_store.py` — replaced by SQLite in Phase 3 step 6, PR #13),
       minimal PDF (`backend/report/pdf.py`), React+TS page (`frontend/`). Verified in
       browser. Review deferred to end-of-project (see collaboration note below).
 
@@ -97,7 +97,13 @@ a teaching explanation, human review before merge; plumbing is written directly.
 - [ ] Step 3 `[CORE]` hash-chained custody (`backend/evidence/custody.py`).
 - [ ] Step 4 `[CORE]` RFC 3161 timestamp request/verify (`timestamp.py`).
 - [ ] Step 5 `[CORE]` case verification + chain-head anchoring (`verify.py`).
-- [ ] Step 6 SQLite append-only store + content-addressed evidence store.
+- [x] Step 6 SQLite append-only store + content-addressed evidence store
+      (`backend/db/`, issue #2, PR #13): `interfaces.py` (Protocols `CaseRepository`,
+      `CustodyLog`, `EvidenceStore` — what the core plugs into), `sqlite_db.py`
+      (schema + triggers), `case_repository.py` + `case_rows.py`, `custody_log.py`
+      (positional append check only — hash links are core's job), `evidence_store.py`
+      (`staging/<case>/` → `blobs/<sha256>`, read-only), `storage.py` factory.
+      Replaces the interim JSON `case_store.py`.
 - [ ] Step 7 CLI incl. `tamper-demo`.
 - [ ] Step 8 docs (logic.md mechanism, risks #1/#5 resolved, CLAUDE.md commands).
 
@@ -172,9 +178,27 @@ language, no code) → user researches + writes it → user asks for help only i
 | 8 | **Cross-detector overlap** | A perfectly paced synthetic scan has near-zero CV and also trips the C2 beacon detector. Real behaviour of the rule, but it can confuse demo pcaps. | OPEN: weigh when curating sample pcaps. |
 | 9 | **Adaptive C2 evades CV check** | Operator-tunable jitter can push CV above 0.1 on purpose. C2 severity is always MEDIUM (one signal, no corroboration). | ACCEPTED limitation; stated in `logic.md` section 2. |
 | 10 | **Parser coverage and cost** | `flow_parser` handles Ethernet/IPv4 TCP/UDP only (no pcapng, no IPv6, no UDP idle timeout). DNS and generic flows are two separate dpkt passes. `Features.inter_arrival_times` is left empty (detectors use flow start times). | OPEN: fold into one pass if large captures matter. |
-| 11 | **Interim JSON case store** | `CaseStore` keeps one JSON file per case until the SQLite append-only store (Phase 3 step 6); no tamper-evidence there yet. | OPEN until step 6. |
+| 11 | **Interim JSON case store** | `CaseStore` keeps one JSON file per case until the SQLite append-only store (Phase 3 step 6); no tamper-evidence there yet. | RESOLVED by step 6 (PR #13): SQLite append-only tables + triggers; tamper-evidence itself comes from the custody chain (#10) + anchoring (#12). |
 | 12 | **Stale README status** | README listed the upload API, orchestrator, PDF and frontend as unbuilt and said 60 tests; suite is 92. | RESOLVED by this refresh PR. |
 
+- **2026-10-20 (cont.)** — **Phase 3 step 6 (plumbing, issue #2, PR #13) built** ahead
+  of core steps 3-5, so the core has a storage contract to plug into. SQLite
+  (`evidence.db_path`): `cases`, `seals` (every `SealRecord` field, token as BLOB),
+  `findings`, `custody_entries` (PK `(case_id, idx)`). Triggers abort UPDATE/DELETE on
+  cases, findings and custody, and DELETE on seals; a seal UPDATE is allowed only as
+  one PENDING → GRANTED with token, gen time and TSA url set and every other column
+  unchanged (`CaseRepository.record_timestamp`, for the TSA retry). Honest limit:
+  triggers stop app mistakes, not someone editing the .sqlite file — the hash chain
+  + anchoring (#10/#12) is what detects that. `CustodyLog.append` enforces only
+  "index = next slot" inside `BEGIN IMMEDIATE`; it never checks `prev_hash`, so a
+  broken link is stored and left for verify to expose. Uploads stream to
+  `evidence_store/staging/<case_id>/`, are sealed there, then `commit` re-hashes with
+  `hash_file`, refuses bytes whose SHA-256 ≠ the claimed name, and hard-links them to
+  `evidence_store/blobs/<sha256>` (0o444, never overwritten, same bytes dedupe). JSON
+  case store removed, no shim: old `evidence_store/cases/` dev data is no longer read.
+  Schema is created lazily on first connect, so importing the API creates no files.
+  Suite **118 passed**. Not wired yet: the API appends no custody entries (needs #10);
+  nothing calls `record_timestamp` yet (TSA client, #3).
 - **2026-10-20** — Docs refresh (PR #1). README, architecture and handoff brought in
   line with the code (92 tests; API, pipeline, PDF, frontend built). Phase 3 plan
   reconstructed in `plan.md` (original plan file lost). Risks table updated (1, 4, 5)
