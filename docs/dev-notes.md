@@ -417,6 +417,8 @@ original proposal.
 A threshold is a judgment call, not a fact. Because every finding prints the measured
 value next to the cutoff, a reviewer can disagree with the cutoff and still see the data.
 
+---
+
 ## 8. Evidence storage: SQLite and content-addressed files
 
 _Issue #2, PR #13._
