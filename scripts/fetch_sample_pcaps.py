@@ -24,6 +24,9 @@ DMACHARD = (
 )
 
 
+MAX_DOWNLOAD_BYTES = 16 * 1024 * 1024  # largest listed sample is ~10 MB
+
+
 @dataclass(frozen=True)
 class Sample:
     name: str
@@ -71,7 +74,10 @@ def _download_once(sample: Sample) -> bytes:
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
     with urllib.request.urlopen(sample.url, context=context, timeout=120) as response:
-        return response.read()
+        data = response.read(MAX_DOWNLOAD_BYTES + 1)
+    if len(data) > MAX_DOWNLOAD_BYTES:
+        raise ValueError(f"{sample.name}: download exceeds {MAX_DOWNLOAD_BYTES:,} bytes")
+    return data
 
 
 def _download(sample: Sample, attempts: int = 3) -> bytes:
@@ -97,6 +103,11 @@ def fetch(sample: Sample) -> str:
 
 
 def main(names: list[str]) -> int:
+    known = {sample.name for sample in SAMPLES}
+    unknown = [name for name in names if name not in known]
+    if unknown:
+        print(f"unknown sample name(s): {', '.join(unknown)}")
+        return 2
     wanted = [s for s in SAMPLES if not names or s.name in names]
     failures = 0
     for sample in wanted:
