@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import socket
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -169,3 +170,77 @@ def test_backoff_is_exponential_and_capped():
         ),
     )
     assert [backoff_delay(config, n) for n in range(1, 6)] == [1.0, 2.0, 4.0, 5.0, 5.0]
+
+
+class _Drip(httpx.SyncByteStream):
+    """A TSA that sends its reply one byte every `pause` seconds."""
+
+    def __init__(self, count: int, pause: float) -> None:
+        self.count, self.pause = count, pause
+
+    def __iter__(self):
+        for _ in range(self.count):
+            time.sleep(self.pause)
+            yield b"x"
+
+
+def test_dripping_reply_is_cut_off_at_the_total_deadline():
+    config = Config(evidence=EvidenceConfig(tsa_url="https://tsa.invalid/tsr", tsa_timeout_secs=1))
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, stream=_Drip(40, 0.1)))
+    started = time.monotonic()
+    with pytest.raises(TsaUnavailableError, match="deadline"):
+        request_timestamp(b"q", config, transport)
+    assert time.monotonic() - started < 2.0  # 40 bytes x 0.1s would take 4s
+
+
+def test_oversized_reply_is_refused():
+    config = Config(evidence=EvidenceConfig(tsa_url="https://tsa.invalid/tsr", tsa_max_reply_bytes=1024))
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, content=b"x" * 2048))
+    with pytest.raises(TsaUnavailableError, match="exceeds 1024 bytes"):
+        request_timestamp(b"q", config, transport)
+
+
+def test_losing_a_concurrent_grant_reports_already_granted(tmp_path: Path, repo: SqliteCaseRepository):
+    case_id = _saved_case(tmp_path, repo, "a" * 32)
+
+    def racing_timestamper(_digest: str):
+        repo.record_timestamp(case_id, b"winner", GEN_TIME, "u")  # the other retry wins
+        return b"loser", GEN_TIME
+
+    result = retry_pending(case_id, repo, racing_timestamper, CONFIG, sleep=lambda _: None)
+    assert result.outcome is RetryOutcome.ALREADY_GRANTED
+    assert repo.load(case_id).seal.rfc3161_token == b"winner"
+
+
+def test_empty_token_is_an_error_not_a_grant(tmp_path: Path, repo: SqliteCaseRepository):
+    case_id = _saved_case(tmp_path, repo, "a" * 32)
+    result = retry_pending(case_id, repo, lambda _d: (b"", GEN_TIME), CONFIG)
+    assert result.outcome is RetryOutcome.ERROR and "empty token" in result.detail
+    results = retry_all_pending(repo, lambda _d: (b"", GEN_TIME), CONFIG, sleep=lambda _: None)
+    assert [r.outcome for r in results] == [RetryOutcome.ERROR]
+    assert repo.load(case_id).seal.timestamp_status is TimestampStatus.PENDING
+
+
+def test_zero_configured_attempts_still_tries_once(tmp_path: Path, repo: SqliteCaseRepository):
+    case_id = _saved_case(tmp_path, repo, "a" * 32)
+    config = Config(evidence=EvidenceConfig(tsa_retry_attempts=0))
+    result = retry_pending(case_id, repo, lambda _d: (b"t", GEN_TIME), config)
+    assert (result.outcome, result.attempts) == (RetryOutcome.GRANTED, 1)
+
+
+def test_batch_circuit_breaker_skips_the_rest_when_tsa_is_down(
+    tmp_path: Path, repo: SqliteCaseRepository
+):
+    for c in "abcde":
+        _saved_case(tmp_path, repo, c * 32)
+    calls: list[str] = []
+
+    def unavailable(digest: str):
+        calls.append(digest)
+        raise TsaUnavailableError("TSA down")
+
+    results = retry_all_pending(repo, unavailable, CONFIG, sleep=lambda _: None)
+    assert [r.attempts for r in results] == [3, 3, 3, 0, 0]
+    assert all(r.outcome is RetryOutcome.STILL_PENDING for r in results)
+    assert "Skipped" in results[-1].detail
+    assert len(calls) == 9

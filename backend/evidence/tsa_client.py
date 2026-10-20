@@ -22,7 +22,7 @@ from enum import Enum
 import httpx
 
 from backend.config import Config
-from backend.db.interfaces import CaseRepository
+from backend.db.interfaces import CaseRepository, SealUpdateError
 from backend.models import TimestampStatus
 
 _QUERY_CONTENT_TYPE = "application/timestamp-query"
@@ -55,22 +55,43 @@ def request_timestamp(
     request_der: bytes, config: Config, transport: httpx.BaseTransport | None = None
 ) -> bytes:
     """POST one DER `TimeStampReq` to the configured TSA and return the DER reply.
-    No retries here — the caller decides. `transport` lets tests stub the network."""
+    No retries here — the caller decides. `transport` lets tests stub the network.
+
+    httpx timeouts apply per network operation, so a server dripping one byte at a
+    time could hold a plain request open indefinitely. The body is therefore read
+    as a stream against a total deadline (`tsa_timeout_secs`) and a size cap. The
+    worst case is the deadline plus one per-operation timeout, i.e. 2x the setting.
+    """
     url = config.evidence.tsa_url
+    timeout = config.evidence.tsa_timeout_secs
+    deadline = time.monotonic() + timeout
     try:
-        with httpx.Client(transport=transport, timeout=config.evidence.tsa_timeout_secs) as client:
-            response = client.post(
+        with httpx.Client(transport=transport, timeout=timeout) as client:
+            with client.stream(
+                "POST",
                 url,
                 content=request_der,
                 headers={"Content-Type": _QUERY_CONTENT_TYPE, "Accept": _REPLY_CONTENT_TYPE},
-            )
+            ) as response:
+                if response.status_code != 200:
+                    raise TsaUnavailableError(f"TSA {url} answered HTTP {response.status_code}.")
+                body = _read_bounded(response, url, deadline, config.evidence.tsa_max_reply_bytes)
     except httpx.HTTPError as error:  # timeouts, DNS, refused connections, ...
         raise TsaUnavailableError(f"TSA {url} unreachable: {error!r}") from error
-    if response.status_code != 200:
-        raise TsaUnavailableError(f"TSA {url} answered HTTP {response.status_code}.")
-    if not response.content:
+    if not body:
         raise TsaUnavailableError(f"TSA {url} answered HTTP 200 with an empty body.")
-    return response.content
+    return body
+
+
+def _read_bounded(response: httpx.Response, url: str, deadline: float, max_bytes: int) -> bytes:
+    body = bytearray()
+    for chunk in response.iter_bytes():
+        body += chunk
+        if len(body) > max_bytes:
+            raise TsaUnavailableError(f"TSA {url} reply exceeds {max_bytes} bytes.")
+        if time.monotonic() > deadline:
+            raise TsaUnavailableError(f"TSA {url} reply not complete within the deadline.")
+    return bytes(body)
 
 
 def backoff_delay(config: Config, failed_attempts: int) -> float:
@@ -89,11 +110,12 @@ def retry_pending(
     attempts: int | None = None,
 ) -> RetryResult:
     """Try to obtain and store a token for one PENDING seal. TSA unavailability is
-    retried with backoff and reported, never raised; other errors propagate."""
+    retried with backoff and reported, and a token the store refuses is reported as
+    ERROR; any other exception (e.g. from the core timestamper) propagates."""
     seal = store.load(case_id).seal
     if seal.timestamp_status is TimestampStatus.GRANTED:
         return RetryResult(case_id, RetryOutcome.ALREADY_GRANTED, 0, "Seal already timestamped.")
-    attempts = attempts or config.evidence.tsa_retry_attempts
+    attempts = max(1, attempts or config.evidence.tsa_retry_attempts)
     last_error = ""
     for attempt in range(1, attempts + 1):
         try:
@@ -103,9 +125,25 @@ def retry_pending(
             if attempt < attempts:
                 sleep(backoff_delay(config, attempt))
             continue
-        store.record_timestamp(case_id, token, gen_time, config.evidence.tsa_url)
-        return RetryResult(case_id, RetryOutcome.GRANTED, attempt, f"TSA genTime {gen_time}.")
+        return _record(case_id, store, token, gen_time, config, attempt)
     return RetryResult(case_id, RetryOutcome.STILL_PENDING, attempts, last_error)
+
+
+def _record(
+    case_id: str, store: CaseRepository, token: bytes, gen_time: datetime, config: Config,
+    attempt: int,
+) -> RetryResult:
+    """Store the token. If a concurrent retry granted the seal first, the store's
+    one-time rule refuses ours — report that as already granted, not as an error."""
+    try:
+        store.record_timestamp(case_id, token, gen_time, config.evidence.tsa_url)
+    except SealUpdateError as error:
+        if store.load(case_id).seal.timestamp_status is not TimestampStatus.GRANTED:
+            # A real refusal (e.g. an empty token): the seal stays PENDING.
+            return RetryResult(case_id, RetryOutcome.ERROR, attempt, str(error))
+        return RetryResult(case_id, RetryOutcome.ALREADY_GRANTED, attempt,
+                           "Another retry granted this seal first.")
+    return RetryResult(case_id, RetryOutcome.GRANTED, attempt, f"TSA genTime {gen_time}.")
 
 
 def retry_all_pending(
@@ -114,11 +152,22 @@ def retry_all_pending(
     config: Config,
     sleep: Callable[[float], None] = time.sleep,
 ) -> list[RetryResult]:
-    """Retry every PENDING seal. One case failing never stops the rest."""
-    results = []
+    """Retry every PENDING seal. One case failing never stops the rest — except
+    the circuit breaker: after `tsa_batch_stop_after_unavailable` consecutive cases
+    find the TSA down, the remaining cases are skipped (left PENDING) for this run."""
+    results: list[RetryResult] = []
+    unavailable_streak = 0
+    limit = config.evidence.tsa_batch_stop_after_unavailable
     for case_id in store.pending_timestamp_case_ids():
+        if unavailable_streak >= limit:
+            results.append(RetryResult(case_id, RetryOutcome.STILL_PENDING, 0,
+                                       f"Skipped: TSA down for {limit} cases in a row."))
+            continue
         try:
-            results.append(retry_pending(case_id, store, timestamper, config, sleep))
+            result = retry_pending(case_id, store, timestamper, config, sleep)
         except Exception as error:  # noqa: BLE001 — report, keep going (issue #3)
-            results.append(RetryResult(case_id, RetryOutcome.ERROR, 0, repr(error)))
+            result = RetryResult(case_id, RetryOutcome.ERROR, 0, repr(error))
+        tsa_down = result.outcome is RetryOutcome.STILL_PENDING
+        unavailable_streak = unavailable_streak + 1 if tsa_down else 0
+        results.append(result)
     return results

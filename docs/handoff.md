@@ -189,7 +189,8 @@ language, no code) → user researches + writes it → user asks for help only i
   backoff (`EvidenceConfig.tsa_retry_*`). `create_app(timestamper=...)` makes ONE
   attempt at ingest; any failure leaves PENDING and never fails the upload.
   `CaseRepository.pending_timestamp_case_ids()` added. httpx moved to runtime deps.
-  Suite **132 passed**. The token is stored, not verified — that is #11/#12.
+  After Pam's review: total reply deadline + 64 KiB cap, lost race → ALREADY_GRANTED,
+  empty token → ERROR, attempts ≥ 1, batch circuit breaker. Suite **158 passed**. The token is stored, not verified — that is #11/#12.
 - **2026-10-20 (cont.)** — **Phase 3 step 6 (plumbing, issue #2, PR #13) built** ahead
   of core steps 3-5, so the core has a storage contract to plug into. SQLite
   (`evidence.db_path`): `cases`, `seals` (every `SealRecord` field, token as BLOB),
