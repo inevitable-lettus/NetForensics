@@ -112,3 +112,40 @@ def test_unknown_and_malformed_ids_not_found(db_path: Path):
 def test_opening_repository_creates_no_files(tmp_path: Path):
     SqliteCaseRepository(tmp_path / "sub" / "nf.sqlite")
     assert not (tmp_path / "sub").exists()
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "INSERT OR REPLACE INTO cases (case_id, flow_count, created_at)"
+        " VALUES ('{c}', 0, 'forged')",
+        "REPLACE INTO seals SELECT case_id, pcap_filename, pcap_size_bytes, hash_algorithm,"
+        " 'forged', sha256_hash, received_at, timestamp_status, rfc3161_token,"
+        " timestamp_gen_time, tsa_url FROM seals",
+        "INSERT OR REPLACE INTO findings SELECT case_id, position, detector, what, why,"
+        " supporting_data_json, 'rewritten', severity FROM findings",
+    ],
+    ids=["cases", "seals", "findings"],
+)
+def test_insert_or_replace_cannot_overwrite_rows(tmp_path: Path, db_path: Path, statement: str):
+    record = _record(tmp_path)
+    repo = SqliteCaseRepository(db_path)
+    repo.save(record)
+    with sqlite3.connect(db_path) as connection:
+        with pytest.raises(sqlite3.IntegrityError, match="row already exists"):
+            connection.execute(statement.format(c=record.case_id))
+    assert repo.load(record.case_id) == record
+
+
+def test_empty_token_is_not_a_timestamp(tmp_path: Path, db_path: Path):
+    repo = SqliteCaseRepository(db_path)
+    record = _record(tmp_path)
+    repo.save(record)
+    with pytest.raises(SealUpdateError, match="empty token"):
+        repo.record_timestamp(record.case_id, b"", GEN_TIME, TSA)
+    with sqlite3.connect(db_path) as connection:  # the trigger refuses it too
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            connection.execute(
+                "UPDATE seals SET timestamp_status = 'granted', rfc3161_token = x'',"
+                " timestamp_gen_time = 't', tsa_url = 'u'"
+            )

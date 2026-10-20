@@ -27,6 +27,7 @@ class SqliteCustodyLog:
 
     def append(self, entry: CustodyEntry) -> None:
         validate_case_id(entry.case_id)
+        _require_json_round_trip(entry)
         with sqlite_db.connect(self.db_path) as connection:
             connection.execute("BEGIN IMMEDIATE")  # take the write lock before reading
             try:
@@ -69,6 +70,20 @@ class SqliteCustodyLog:
                 f"Case {entry.case_id} has {count} custody entries; "
                 f"the next entry must have index {count}, got {entry.index}."
             )
+
+
+def _require_json_round_trip(entry: CustodyEntry) -> None:
+    """Refuse a payload that would read back different from what was given (tuple ->
+    list, int key -> str key, NaN): its hash could never be re-verified from storage."""
+    try:
+        restored = json.loads(json.dumps(entry.payload, allow_nan=False))
+    except (TypeError, ValueError) as error:
+        raise CustodyAppendError(f"Payload is not JSON-storable: {error}") from error
+    if restored != entry.payload:
+        raise CustodyAppendError(
+            "Payload would not read back identically from JSON (tuples, non-string keys "
+            "or other non-JSON types); store lists, string keys and JSON scalars only."
+        )
 
 
 def _to_row(entry: CustodyEntry) -> tuple[object, ...]:

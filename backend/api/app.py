@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, File, HTTPException, Response, UploadFile
 
 from backend.config import CONFIG, Config
+from backend.db.evidence_store import StoredEvidenceCorruptError
 from backend.db.interfaces import CaseNotFoundError, CaseRepository
 from backend.db.serialization import to_jsonable
 from backend.db.storage import Storage
@@ -41,6 +42,9 @@ def create_app(storage: Storage | None = None, config: Config = CONFIG) -> FastA
             storage.evidence.discard_staged(case_id)
             status = 400 if isinstance(error, InvalidCaptureError) else 413
             raise HTTPException(status_code=status, detail=str(error)) from error
+        except BaseException:  # anything unexpected: never leave a staged upload behind
+            storage.evidence.discard_staged(case_id)
+            raise
         record = _analyze_and_commit(storage, case_id, staged, config)
         storage.cases.save(record)
         return to_jsonable(record)
@@ -73,7 +77,10 @@ def _analyze_and_commit(
     except Exception:
         storage.evidence.discard_staged(case_id)
         raise
-    storage.evidence.commit(staged, record.seal.sha256_hash)
+    try:
+        storage.evidence.commit(staged, record.seal.sha256_hash)
+    except StoredEvidenceCorruptError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     return record
 
 

@@ -66,6 +66,17 @@ CREATE TABLE IF NOT EXISTS custody_entries (
 
 _FULLY_APPEND_ONLY = ("cases", "findings", "custody_entries")
 
+# Primary key of every table. `INSERT OR REPLACE` / `REPLACE INTO` resolves a key
+# conflict by deleting the old row WITHOUT firing DELETE triggers (SQLite only fires
+# them with recursive_triggers on), so a BEFORE INSERT trigger refuses any insert
+# whose key already exists — that closes the replace path on every table.
+_PRIMARY_KEYS = {
+    "cases": ("case_id",),
+    "seals": ("case_id",),
+    "findings": ("case_id", "position"),
+    "custody_entries": ("case_id", "idx"),
+}
+
 # A seal may change exactly once: PENDING -> GRANTED, filling the three timestamp
 # columns. Every other column must stay byte-identical (IS compares NULL-safely).
 _SEAL_IMMUTABLE_COLUMNS = (
@@ -73,6 +84,15 @@ _SEAL_IMMUTABLE_COLUMNS = (
     "pcap_hash", "sha256_hash", "received_at",
 )
 SEAL_UPDATE_REJECTED = "seal is immutable except one PENDING -> GRANTED timestamp"
+
+
+def _no_overwrite_trigger(table: str, key: tuple[str, ...]) -> str:
+    match = " AND ".join(f"{column} = NEW.{column}" for column in key)
+    return (
+        f"CREATE TRIGGER IF NOT EXISTS {table}_no_overwrite BEFORE INSERT ON {table} "
+        f"WHEN EXISTS (SELECT 1 FROM {table} WHERE {match}) "
+        f"BEGIN SELECT RAISE(ABORT, '{table} is append-only: row already exists'); END;"
+    )
 
 
 def _append_only_triggers() -> str:
@@ -87,11 +107,12 @@ def _append_only_triggers() -> str:
         "CREATE TRIGGER IF NOT EXISTS seals_no_delete BEFORE DELETE ON seals "
         "BEGIN SELECT RAISE(ABORT, 'seals is append-only'); END;"
     )
+    statements.extend(_no_overwrite_trigger(table, key) for table, key in _PRIMARY_KEYS.items())
     unchanged = " AND ".join(f"NEW.{c} IS OLD.{c}" for c in _SEAL_IMMUTABLE_COLUMNS)
     statements.append(
         "CREATE TRIGGER IF NOT EXISTS seals_timestamp_once BEFORE UPDATE ON seals "
         "WHEN NOT (OLD.timestamp_status = 'pending' AND NEW.timestamp_status = 'granted'"
-        " AND NEW.rfc3161_token IS NOT NULL AND NEW.timestamp_gen_time IS NOT NULL"
+        " AND length(NEW.rfc3161_token) > 0 AND NEW.timestamp_gen_time IS NOT NULL"
         f" AND NEW.tsa_url IS NOT NULL AND {unchanged}) "
         f"BEGIN SELECT RAISE(ABORT, '{SEAL_UPDATE_REJECTED}'); END;"
     )

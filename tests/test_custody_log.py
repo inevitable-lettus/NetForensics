@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -77,3 +78,31 @@ def test_database_rejects_update_and_delete_of_entries(tmp_path: Path):
         ):
             with pytest.raises(sqlite3.IntegrityError, match="append-only"):
                 connection.execute(statement)
+
+
+def test_insert_or_replace_cannot_rewrite_an_entry(tmp_path: Path):
+    db_path = tmp_path / "nf.sqlite"
+    log = SqliteCustodyLog(db_path)
+    log.append(_entry(0))
+    with sqlite3.connect(db_path) as connection:
+        with pytest.raises(sqlite3.IntegrityError, match="row already exists"):
+            connection.execute(
+                "INSERT OR REPLACE INTO custody_entries SELECT case_id, idx, timestamp,"
+                " event_type, 'rewritten', prev_hash, entry_hash, payload_json"
+                " FROM custody_entries"
+            )
+    assert log.entries(CASE) == (_entry(0),)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [{"t": (1, 2)}, {1: "x"}, {"nan": float("nan")}, {"b": b"x"}],
+    ids=["tuple", "int-key", "nan", "bytes"],
+)
+def test_payload_that_would_not_read_back_identically_is_refused(
+    log: SqliteCustodyLog, payload: dict
+):
+    entry = dataclasses.replace(_entry(0), payload=payload)
+    with pytest.raises(CustodyAppendError, match="Payload"):
+        log.append(entry)
+    assert log.entries(CASE) == ()

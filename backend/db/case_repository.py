@@ -76,6 +76,8 @@ class SqliteCaseRepository:
         """Store a TSA token for a PENDING seal. Validating the token is the core
         timestamp module's job; this only persists it, once."""
         validate_case_id(case_id)
+        if not token:
+            raise SealUpdateError(f"Case {case_id}: an empty token is not a timestamp.")
         with sqlite_db.connect(self.db_path) as connection:
             try:
                 cursor = connection.execute(

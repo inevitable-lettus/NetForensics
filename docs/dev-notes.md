@@ -22,7 +22,8 @@ arithmetic shown in the text), not estimated.
 5. [Port-scan detector](#5-port-scan-detector)
 6. [The seal: hashing the evidence](#6-the-seal-hashing-the-evidence)
 7. [Current thresholds and what they mean](#7-current-thresholds-and-what-they-mean)
-8. [Not built yet](#8-not-built-yet)
+8. [Evidence storage: SQLite and content-addressed files](#8-evidence-storage-sqlite-and-content-addressed-files)
+9. [Not built yet](#9-not-built-yet)
 
 ## Words used throughout
 
@@ -64,10 +65,11 @@ of the file plus a list of findings, viewable as JSON and as a PDF.
    summaries; C2 beaconing and port scan read the flows. Each returns findings.
 6. **Sort and package.** Findings are sorted most severe first and bundled with the seal
    into a `CaseRecord`.
-7. **Save.** The record is written as `case.json` next to the uploaded pcap under
-   `evidence_store/cases/<case id>/`. The case id is a random 32-character hex string and
-   is checked against that exact pattern on every read, so a crafted id like `../x`
-   cannot reach other folders.
+7. **Save.** The pcap moves from `evidence_store/staging/<case id>/` to
+   `evidence_store/blobs/<sha256>` (read-only, re-hashed on the way in), and the case,
+   seal and findings go into the append-only SQLite database (section 8). The case id
+   is a random 32-character hex string and is checked against that exact pattern on
+   every read, so a crafted id like `../x` cannot reach other folders.
 8. **Report.** `GET /api/cases/<id>/report.pdf` renders the saved record to a PDF. It reads
    only the record and never re-reads the pcap.
 
@@ -83,8 +85,9 @@ of the file plus a list of findings, viewable as JSON and as a PDF.
 - The pcap is read twice (once for DNS, once for flows). Fine for small captures; worth
   merging into one pass if big captures matter.
 - Only classic pcap, Ethernet, IPv4, TCP and UDP. No pcapng, no IPv6, no live capture.
-- Cases are stored as plain JSON files for now. Nothing there proves the JSON was not
-  edited afterwards. That tamper-evidence arrives with the SQLite store (section 8).
+- The database refuses edits made through normal SQL, but someone with write access to
+  the database file can still change it. Proving nothing changed needs the custody
+  chain and its timestamped head (section 9).
 - The PDF is minimal; it will grow once the custody chain exists.
 
 ---
@@ -376,9 +379,9 @@ existed, is a later step. Until it happens the seal's status is `PENDING`.
   whether the file was genuine or complete when it was captured or uploaded.
 - With no trusted timestamp yet, the seal's "received at" time is just our own clock. It
   does not prove the date to a third party.
-- The hash is stored beside the file in an editable JSON record; a person with disk access
-  could change both. Closing that gap is what the custody chain and the append-only store
-  are for (section 8).
+- The hash is stored in the append-only database (section 8), which blocks edits through
+  normal SQL, but a person with write access to the database file could still change it.
+  Closing that gap is what the custody chain and its timestamped head are for (section 9).
 - Hash-checking on re-open (verification) is not built yet; today the seal is only written.
 
 ---
@@ -409,14 +412,62 @@ original proposal.
 | `tsa_url` | `https://freetsa.org/tsr` | Free timestamp authority to be used for RFC 3161 timestamps (not wired up yet). |
 | `tsa_timeout_secs` | 5 | How long to wait for the authority before falling back. |
 | `allow_offline_fallback` | true | If the authority cannot be reached, the seal stays `PENDING` and is retried; a timestamp is never faked. |
-| `evidence_store_dir` / `db_path` | `evidence_store`, `evidence_store/netforensics.sqlite` | Where cases and the future database are kept (git-ignored). |
+| `evidence_store_dir` / `db_path` | `evidence_store`, `evidence_store/netforensics.sqlite` | Where evidence blobs and the SQLite database are kept (git-ignored). |
 
 A threshold is a judgment call, not a fact. Because every finding prints the measured
 value next to the cutoff, a reviewer can disagree with the cutoff and still see the data.
 
+## 8. Evidence storage: SQLite and content-addressed files
+
+_Issue #2, PR #13._
+
+**What it does.** Keeps every case on disk so that nothing about it can be quietly
+changed later: the case, its seal, its findings, its custody log, and the uploaded
+pcap itself.
+
+**Concepts, one line each.**
+- *SQLite* — a database that lives in a single file; no server to run.
+- *Trigger* — a rule stored inside the database that runs automatically before a
+  change; ours cancel the change ("abort").
+- *Append-only* — rows can be added, never edited or deleted.
+- *Hash / digest* — a fixed-length fingerprint of some bytes (SHA-256 gives 64 hex
+  characters). Change one byte and the fingerprint changes completely.
+- *Content-addressed* — a file is stored under the name of its own fingerprint, so
+  the name proves what the content must be.
+
+**How it works, step by step.**
+1. An upload is streamed into `evidence_store/staging/<case_id>/` (never held in
+   memory in one piece) and size-capped.
+2. It is sealed there (BLAKE3 + SHA-256 fingerprints, section 6), then analysed.
+3. The store re-computes the SHA-256 of the staged file. If it does not equal the
+   name it is about to be stored under, it refuses.
+4. The file is linked to `evidence_store/blobs/<sha256>` and made read-only. If a
+   blob with that name already exists (same evidence uploaded twice), the store
+   re-hashes the *existing* blob first and refuses loudly if it was altered.
+5. The case, seal and findings go into SQLite in one transaction (all or nothing).
+6. Triggers refuse every UPDATE and DELETE, and refuse any INSERT whose key already
+   exists (this closes `INSERT OR REPLACE`, which would otherwise delete-and-rewrite
+   a row without firing the delete trigger). The only allowed change: a seal's
+   timestamp going from PENDING to GRANTED once, with a non-empty token (a NULL or
+   empty token is refused).
+
+**Worked example.** The 10 bytes `pcap-bytes` have SHA-256
+`ee93…` (64 hex chars). They are stored at `blobs/ee93…`. Someone edits the file to
+`Pcap-bytes` (one letter). Its SHA-256 is now completely different, so
+`hash_file(blob).sha256_hex != blob.name` — re-uploading the original bytes now gets
+HTTP 409 "the stored copy was altered", instead of silently trusting the old file.
+
+**Limits.**
+- Triggers stop mistakes in *our code*. Someone who can write the `.sqlite` file can
+  drop a trigger or edit bytes directly. Catching that is the job of the custody hash
+  chain (#10) and anchoring its head with a trusted timestamp (#12).
+- The custody log here only checks that entries arrive in order (0, 1, 2…); it does
+  not check the hash links — that is verification's job, so a broken link stays
+  visible instead of being hidden.
+
 ---
 
-## 8. Not built yet
+## 9. Not built yet
 
 Listed so nobody mistakes a plan for a feature. Each gets its own section above when it
 lands (standing rule).
@@ -428,7 +479,5 @@ lands (standing rule).
   Configured, not built; seals are `PENDING`.
 - **Case verification and the tamper demo:** re-hash the stored file, compare to the seal,
   walk the chain. The 10-second flip-one-byte demonstration.
-- **SQLite append-only store and content-addressed evidence store:** replaces the JSON
-  case files. (In progress in PR #13; this section will be added when it merges.)
 - **JA3 fingerprinting (4th detector):** matches TLS handshake fingerprints to a known
   malware list. Deliberately deferred.

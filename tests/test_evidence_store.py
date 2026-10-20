@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from backend.db.evidence_store import ContentAddressedEvidenceStore, EvidenceNotFoundError
+from backend.db.evidence_store import (
+    ContentAddressedEvidenceStore,
+    EvidenceNotFoundError,
+    StoredEvidenceCorruptError,
+)
 from backend.db.interfaces import CaseNotFoundError, EvidenceMismatchError
 from backend.evidence.seal import hash_file
 
@@ -95,3 +99,29 @@ def test_commit_refuses_files_outside_staging(tmp_path: Path):
 def test_missing_evidence_not_found(tmp_path: Path):
     with pytest.raises(EvidenceNotFoundError):
         ContentAddressedEvidenceStore(tmp_path).path_for(DIGEST)
+
+
+def test_dedupe_rehashes_existing_blob_and_refuses_a_corrupt_one(tmp_path: Path):
+    store = ContentAddressedEvidenceStore(tmp_path)
+    stored = store.commit(_stage(store), DIGEST)
+    stored.chmod(0o644)
+    stored.write_bytes(b"Pcap-bytes")  # stored copy altered on disk
+    with pytest.raises(StoredEvidenceCorruptError, match="altered"):
+        store.commit(_stage(store, "f" * 32), DIGEST)
+    assert stored.read_bytes() == b"Pcap-bytes"  # left in place for investigation
+    assert not (tmp_path / "staging" / ("f" * 32)).exists()
+
+
+@pytest.mark.parametrize("name", ["..", ".", ""])
+def test_dot_filenames_fall_back_to_a_safe_name(tmp_path: Path, name: str):
+    store = ContentAddressedEvidenceStore(tmp_path)
+    path = store.stage_upload(CASE, name, _chunks(b"x"), 10)
+    assert path == tmp_path / "staging" / CASE / "upload.pcap"
+
+
+def test_bad_digest_at_commit_leaves_no_staging_behind(tmp_path: Path):
+    store = ContentAddressedEvidenceStore(tmp_path)
+    staged = _stage(store)
+    with pytest.raises(ValueError, match="SHA-256"):
+        store.commit(staged, "not-a-digest")
+    assert not staged.parent.exists()

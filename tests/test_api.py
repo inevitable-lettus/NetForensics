@@ -83,3 +83,21 @@ def test_upload_commits_pcap_to_its_content_address(client: TestClient, tmp_path
 def test_unknown_or_malformed_case_id_is_404(client: TestClient):
     assert client.get(f"/api/cases/{'b' * 32}").status_code == 404
     assert client.get("/api/cases/..%2Fetc").status_code == 404
+
+
+def test_dot_dot_filename_is_accepted_safely(client: TestClient, tmp_path: Path):
+    response = _upload(client, "..", _beacon_pcap_bytes(tmp_path))
+    assert response.status_code == 201
+    assert response.json()["seal"]["pcap_filename"] == "upload.pcap"
+    assert not any((tmp_path / "store" / "staging").iterdir())
+
+
+def test_reupload_over_corrupt_stored_blob_is_409(client: TestClient, tmp_path: Path):
+    data = _beacon_pcap_bytes(tmp_path)
+    digest = _upload(client, "beacon.pcap", data).json()["seal"]["sha256_hash"]
+    blob = tmp_path / "store" / "blobs" / digest
+    blob.chmod(0o644)
+    blob.write_bytes(data[:-1] + bytes([data[-1] ^ 0xFF]))  # flip the last byte
+    response = _upload(client, "beacon.pcap", data)
+    assert response.status_code == 409
+    assert "altered" in response.json()["detail"]

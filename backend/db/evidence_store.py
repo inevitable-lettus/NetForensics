@@ -31,6 +31,21 @@ class EvidenceNotFoundError(LookupError):
     """No committed evidence exists under the requested digest."""
 
 
+class StoredEvidenceCorruptError(EvidenceMismatchError):
+    """An already-stored blob no longer hashes to its own name."""
+
+
+def _require_intact(blob: Path) -> None:
+    """Dedupe must not vouch for a blob it has not checked: re-hash the existing copy
+    and refuse loudly if it was altered, rather than silently keeping it."""
+    actual = hash_file(str(blob)).sha256_hex
+    if actual != blob.name:
+        raise StoredEvidenceCorruptError(
+            f"Stored evidence {blob.name} now hashes to {actual}: the stored copy was "
+            "altered. It is left in place for investigation."
+        )
+
+
 class ContentAddressedEvidenceStore:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -45,7 +60,8 @@ class ContentAddressedEvidenceStore:
         reduced to its basename so it cannot escape the staging directory."""
         directory = self.staging / validate_case_id(case_id)
         directory.mkdir(parents=True, exist_ok=False)
-        destination = directory / (Path(filename).name or "upload.pcap")
+        name = Path(filename).name
+        destination = directory / (name if name not in ("", ".", "..") else "upload.pcap")
         written = 0
         with destination.open("wb") as out:
             while chunk := read_chunk():
@@ -61,8 +77,8 @@ class ContentAddressedEvidenceStore:
         directory is removed either way, including when the bytes are refused."""
         if not staged_path.resolve().is_relative_to(self.staging.resolve()):
             raise ValueError(f"{staged_path} is not a staged upload.")
-        destination = self._blob_path(sha256_hex)
         try:
+            destination = self._blob_path(sha256_hex)
             actual = hash_file(str(staged_path)).sha256_hex
             if actual != sha256_hex:
                 raise EvidenceMismatchError(
@@ -78,10 +94,11 @@ class ContentAddressedEvidenceStore:
     def _link_once(staged_path: Path, destination: Path) -> None:
         """Hard-link the staged file into place. `os.link` refuses an existing
         target atomically, so two concurrent commits of the same evidence can never
-        overwrite a stored blob; the loser simply keeps the existing one."""
+        overwrite a stored blob; the loser keeps the existing one after re-hashing it."""
         try:
             os.link(staged_path, destination)
         except FileExistsError:
+            _require_intact(destination)
             return
         destination.chmod(_READ_ONLY)
 
