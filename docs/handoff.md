@@ -56,8 +56,8 @@ append-only in SQLite, driven by a CLI tamper demo.
 ## Next up (Phase 1 — Vertical slice)
 
 Per [`../plan.md`](../plan.md) file/phase order; ownership tags superseded — see
-"Collaboration model" above: `[CORE]` items are pairing/teaching mode, plumbing is
-written directly.
+"Collaboration model" above: Phase 3 steps 3-5 are built by Jim, one PR per step with
+a teaching explanation, human review before merge; plumbing is written directly.
 
 - [x] BLAKE3 seal function (pcap → `SealRecord`) — `backend/evidence/seal.py`.
       Smoke-tested manually (temp file → correct `SealRecord`, all fields populated).
@@ -119,7 +119,17 @@ Authoritative roadmap is [`../plan.md`](../plan.md). Phases: 0 Foundation & cont
 1 Vertical slice (upload→seal→DNS-exfil→PDF) → 2 Parsing depth & remaining detectors →
 3 Evidence-integrity layer (the differentiator) → 4 Report, polish & demo.
 
-## Collaboration model — updated 2026-08-21 (pairing mode)
+## Collaboration model — updated 2026-10-20
+
+Human decision, 2026-10-20: Phase 3 steps 3-5 (custody chain, RFC 3161 timestamp, case
+verification) are built by Jim directly, one PR per step, each with a teaching
+explanation in the PR. The human reviews before merge. This replaces the per-piece
+pairing loop for those steps. The decision does not cover other core logic (JA3
+detector, threshold tuning, evidence-string wording); the pairing model below still
+applies there until the human says otherwise. Full wording in
+[`../CLAUDE.md`](../CLAUDE.md) "Collaboration model".
+
+## Collaboration model — 2026-08-21 (pairing mode, historical for steps 3-5)
 
 Superseded the 2026-07-16 "user writes everything solo" model (kept below for
 history). New split, per [`../CLAUDE.md`](../CLAUDE.md) "Collaboration model":
@@ -165,6 +175,12 @@ language, no code) → user researches + writes it → user asks for help only i
 | 11 | **Interim JSON case store** | `CaseStore` keeps one JSON file per case until the SQLite append-only store (Phase 3 step 6); no tamper-evidence there yet. | OPEN until step 6. |
 | 12 | **Stale README status** | README listed the upload API, orchestrator, PDF and frontend as unbuilt and said 60 tests; suite is 92. | RESOLVED by this refresh PR. |
 
+- **2026-10-20** — Docs refresh (PR #1). README, architecture and handoff brought in
+  line with the code (92 tests; API, pipeline, PDF, frontend built). Phase 3 plan
+  reconstructed in `plan.md` (original plan file lost). Risks table updated (1, 4, 5)
+  and extended (6-12). **Collaboration decision:** steps 3-5 built by Jim directly, one
+  PR per step with a teaching explanation, human review before merge; replaces
+  per-piece pairing for those steps. Docs only, no code touched.
 - **2026-09-21** — **Phase B (plumbing) complete.** Committed Phase 3 steps 1-2
   (`be37241`, no co-author line per user). Added: `flow_parser.py` (bidirectional flows,
   initiator-oriented so a scanned host's replies never look like a scanner; new SYN on a

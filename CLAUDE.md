@@ -48,9 +48,27 @@ as historical source material — the docs above are the authoritative, extracte
    reassembly, no ML). Shippable beats ambitious. New detectors plug in without
    touching the evidentiary core.
 
-## Collaboration model — pairing mode (2026-08-25)
+## Collaboration model (updated 2026-10-20)
 
 Two kinds of code, two ways of working:
+
+- **Plumbing** — FastAPI routes, SQLite schema, React components, PDF export. Claude
+  writes it directly. User reviews the diff, no walkthrough needed.
+- **Evidence layer, Phase 3 steps 3-5** — custody hash chain (`custody.py`), RFC 3161
+  timestamp (`timestamp.py`), case verification (`verify.py`). Jim builds these
+  directly, **one PR per step**. Each PR carries a teaching explanation: what each
+  part does and why, the alternatives rejected, and the subtleties a real forensics
+  tool must defend (hash collision edge cases, timestamp forgery vectors, false
+  positives). The human reviews and approves before merge. This replaces the
+  per-piece pairing loop below for these steps.
+- **Other core logic** (JA3 detector, threshold tuning, evidence-string wording) — the
+  2026-10-20 decision covers steps 3-5 only. Until the human says otherwise, the
+  previous pairing model below still applies to these.
+
+Still true under both models: no unprompted full-detector dumps, and never treat
+silence from the reviewer as approval — ping.
+
+### Previous model — pairing mode (2026-08-25, historical for steps 3-5)
 
 - **Plumbing** — FastAPI routes, SQLite schema, React components, PDF export. Claude
   writes it directly. User reviews the diff, no walkthrough needed.
@@ -164,5 +182,5 @@ install wireshark`. Not a pip package; the dpkt path runs without it.
   dated session-log entry; refresh current phase / next-up / open risks).
 - Update `architecture.md` / `logic.md` **only when the design itself changes**, not
   routinely. Keep roles separate — do not duplicate detail across docs.
-- Checkpoints in pairing mode (see Collaboration model above) are a per-session
+- Review checkpoints (see Collaboration model above) are a per-session
   concern — track them in the handoff session log, not here.

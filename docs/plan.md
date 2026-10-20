@@ -26,7 +26,11 @@ teaching trade-offs/failure modes) → next piece only after checkpoint clears.
 **Parallelism:** while a `[CORE]` item is mid-checkpoint, Claude can build the next
 phase's `[INDEP]` plumbing. Phase N core work and Phase N+1 plumbing can overlap.
 
-> **Current model — 2026-08-21 (pairing mode)**, see [`handoff.md`](handoff.md)
+> **2026-10-20 update:** Phase 3 steps 3-5 are built by Jim directly, one PR per step
+> with a teaching explanation, human review before merge. This replaces the per-piece
+> loop for those steps only; see [`../CLAUDE.md`](../CLAUDE.md) "Collaboration model".
+>
+> **Model as of 2026-08-21 (pairing mode)**, see [`handoff.md`](handoff.md)
 > "Collaboration model" and [`../CLAUDE.md`](../CLAUDE.md). This restores the
 > `[CORE]`/`[INDEP]` split above as the working model (superseding the 2026-07-16
 > "user writes everything solo" phase, itself now historical). Phase order and file
@@ -126,9 +130,9 @@ demo.
 |---|---|---|---|
 | 1 | plumbing | Shared shapes + config: `SealRecord` with both hashes and a timestamp status, `CustodyEntry.case_id`, `CheckResult` / `VerificationReport`. | done |
 | 2 | `[CORE]` | Streaming dual-hash seal (BLAKE3 + SHA-256 in one pass). `hash_file` → `FileDigests` (shared with verify); `seal_pcap` → seal with `PENDING` timestamp. | done |
-| 3 | `[CORE]` | Hash-chained custody (`backend/evidence/custody.py`): each entry embeds the prior entry's hash. | next |
-| 4 | `[CORE]` | RFC 3161 timestamp request and verify (`backend/evidence/timestamp.py`); offline falls back to `PENDING` and retries (risk #1). | todo |
-| 5 | `[CORE]` | Case verification and chain-head anchoring (`backend/evidence/verify.py`): re-hash the stored pcap, compare to the seal, walk the chain. | todo |
+| 3 | `[CORE]` (Jim, PR + teaching) | Hash-chained custody (`backend/evidence/custody.py`): each entry embeds the prior entry's hash. | next |
+| 4 | `[CORE]` (Jim, PR + teaching) | RFC 3161 timestamp request and verify (`backend/evidence/timestamp.py`); offline falls back to `PENDING` and retries (risk #1). | todo |
+| 5 | `[CORE]` (Jim, PR + teaching) | Case verification and chain-head anchoring (`backend/evidence/verify.py`): re-hash the stored pcap, compare to the seal, walk the chain. | todo |
 | 6 | plumbing | SQLite append-only store (no update/delete) and a content-addressed evidence store; replaces the interim JSON case store. | todo |
 | 7 | plumbing | CLI including `tamper-demo` (flip one byte → re-verify → flagged). | todo |
 | 8 | docs | `logic.md` mechanism section, risks #1 and #5 marked resolved in `handoff.md`, `CLAUDE.md` commands. | todo |
