@@ -146,10 +146,11 @@ demo.
 - `[INDEP]` **Curate sample pcaps so every detector fires** (open risk #2).
 - `[INDEP]` Written demo script.
 - `[CORE]` Tune thresholds against real captures.
-- `[CORE]` Finalize evidence-string wording + the "court-admissible" → "evidentiary
-  integrity / tamper-evident" reframing (open risk #3).
+- `[CORE]` Finalize evidence-string wording (one fixed sentence template). The
+  "court-admissible" → "tamper-evident, designed toward admissibility" reframing is done
+  (risk #3 closed 2026-10-22).
 
-**Checkpoint:** rehearsed end-to-end — upload → detect → explain → verify → court-ready
+**Checkpoint:** rehearsed end-to-end — upload → detect → explain → verify → tamper-evident
 report.
 
 ---
@@ -159,7 +160,7 @@ report.
 **Open risks** (tracked live in [`docs/handoff.md`](docs/handoff.md)):
 1. RFC 3161 TSA choice + offline fallback — addressed in Phase 3.
 2. Curate demo pcaps so all four detectors fire — addressed in Phases 2 & 4.
-3. "Court-admissible" wording → reframe toward "evidentiary integrity / tamper-evident."
+3. "Court-admissible" wording → reframed to "tamper-evident, designed toward admissibility" (CLOSED 2026-10-22).
 4. tshark installed on the machine running the tool — verify early (Phase 0 dependency check).
 
 **Build order rationale:** shared models/interfaces (Phase 0) precede all

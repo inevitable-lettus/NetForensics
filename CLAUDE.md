@@ -2,7 +2,7 @@
 
 Explainable packet-forensics tool for cybercrime investigators. Ingests a `.pcap`,
 runs four transparent detectors (DNS exfil, C2 beaconing, port scan, JA3 fingerprinting),
-and wraps results in a **court-admissible evidence layer** (BLAKE3 hash + RFC 3161
+and wraps results in a **tamper-evident evidence layer, designed toward admissibility** (BLAKE3 hash + RFC 3161
 trusted timestamp + append-only chain of custody → forensic PDF report).
 
 Personal portfolio project — no deadline. Point is learning the security concepts and
@@ -32,7 +32,7 @@ current build state, what to do next, and open decisions.
 | [`docs/handoff.md`](docs/handoff.md) | **Living state** — current phase, done/next, open risks, session log. Read first. |
 | [`docs/architecture.md`](docs/architecture.md) | System structure — pipeline, stack, data flow, repo layout, dependency risks. |
 | [`docs/logic.md`](docs/logic.md) | Business rules — detector formulas/thresholds, evidence-layer mechanics, explainability contract. |
-| [`docs/dev-notes.md`](docs/dev-notes.md) | **Plain-language explanations for the human** — what each built piece does, how, the concepts and math with worked examples, and its limits. |
+| [`docs/dev-notes.md`](docs/dev-notes.md) | **Brief plain-language explanations for the human** — what each built piece does, the key concept, one short worked example, and its limits. |
 
 The earliest proposal draft and a flow diagram exist locally (git-ignored, not published)
 as historical source material — the docs above are the authoritative, extracted versions.
@@ -189,6 +189,10 @@ Every PR that builds something adds or updates its section in
 [`docs/dev-notes.md`](docs/dev-notes.md). The reader is the human owner, who is learning
 the concepts, so write for them:
 
+- **Keep it brief and simple (human rule, 2026-10-22).** Each section covers: what it
+  does, the key concept, one short worked example, and its limits. Aim for under about
+  40 lines per section; no long background. Cut anything a reader does not need to
+  follow the example.
 - **What it does** and **how it works, step by step**.
 - **Every concept used** (crypto, statistics, networking) explained in plain language.
   No jargon without a one-line definition on first use.

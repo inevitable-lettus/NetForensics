@@ -173,7 +173,7 @@ language, no code) → user researches + writes it → user asks for help only i
 |---|---|---|---|
 | 1 | **RFC 3161 TSA choice + offline fallback** | A live TSA needs internet and can fail, which would kill the headline feature. Pick a TSA (e.g. freeTSA.org) and cache/fallback so it never hard-fails. | DECIDED, not built: `config.py` uses freetsa.org; offline keeps the seal `PENDING` and retries, never faked. Built in Phase 3 step 4. |
 | 2 | **Curate sample pcaps so all 4 detectors fire** | A walkthrough where TLS/SSLBL shows zero hits is weak. Hand-pick captures from malware-traffic-analysis.net per detector. | OPEN |
-| 3 | **"Court-admissible" wording** | Overclaiming invites a brutal "prove it" question. Reframe toward "evidentiary integrity / tamper-evident, designed toward admissibility." Prove tamper-evidence live instead. | OPEN |
+| 3 | **"Court-admissible" wording** | Overclaiming invites a brutal "prove it" question. Reframe toward "evidentiary integrity / tamper-evident, designed toward admissibility." Prove tamper-evidence live instead. | CLOSED 2026-10-22 (decision F, option 1, step 1): "court-admissible" replaced by "tamper-evident, designed toward admissibility" in CLAUDE.md, logic.md and plan.md. Step 2 (one fixed evidence-sentence template) is core code, still to do. |
 | 4 | **tshark on the dev machine** | PyShark needs tshark installed; verify on the actual machine. Keep dpkt path independent. | OPEN. Verified 2026-10-20: tshark MISSING on this Mac (`which tshark` empty); pyshark is pip-installed in `.venv`. No code under `backend/` or `tests/` imports pyshark, so all 92 tests pass without tshark; only `scripts/check_deps.py` warns. The PyShark path is not built yet (Phase 2 TLS/JA3 work), so tshark becomes a hard need only when JA3 parsing lands. `brew install wireshark` then. |
 | 5 | **Custody-log tamper-evidence mechanism** | Decide hash-chained entries (each references prior). Must be genuine, not cosmetic. | BUILT (#10): SHA-256 hash chain, genesis bound to the seal; tail truncation left to anchoring (#12). |
 | 6 | **Entropy threshold vs subdomain length** | Shannon entropy per character is capped at log2(length), so `entropy_threshold` 4.2 can only fire on subdomains of 19+ characters. Short encoded labels never reach it. | OPEN: tune against real captures (core/pairing). |
@@ -184,6 +184,11 @@ language, no code) → user researches + writes it → user asks for help only i
 | 11 | **Interim JSON case store** | `CaseStore` keeps one JSON file per case until the SQLite append-only store (Phase 3 step 6); no tamper-evidence there yet. | RESOLVED by step 6 (PR #13): SQLite append-only tables + triggers; tamper-evidence itself comes from the custody chain (#10) + anchoring (#12). |
 | 12 | **Stale README status** | README listed the upload API, orchestrator, PDF and frontend as unbuilt and said 60 tests; suite is 92. | RESOLVED by this refresh PR. |
 
+- **2026-10-22** — Docs only (Toby). Human approved every recommendation in dev-notes
+  section "Open questions" (A-I); recorded as a short decisions log (section 13).
+  Shortened `docs/dev-notes.md` from 1035 to about 565 lines, same facts and worked
+  examples. Closed risk #3 (wording, step 1). Added the brevity rule to the CLAUDE.md
+  Dev notes rule. No code changes.
 - **2026-10-20 (cont.)** — **Issue #10 custody hash chain (core, PR #19)**: `custody.py` —
   `canonical_json`, `utc_text`, `genesis_prev_hash`, `compute_entry_hash`, `build_entry`
   (clock injected, `CustodyEvent` input), `find_chain_break` → first broken index +
