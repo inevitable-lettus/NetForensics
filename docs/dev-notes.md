@@ -93,7 +93,7 @@ of the file plus a list of findings, viewable as JSON and as a PDF.
 - Only classic pcap, Ethernet, IPv4, TCP and UDP. No pcapng, no IPv6, no live capture.
 - The database refuses edits made through normal SQL, but someone with write access to
   the database file can still change it. Proving nothing changed needs the custody
-  chain and its timestamped head (sections 10 and 11).
+  chain and its timestamped head (sections 10 and 12).
 - The PDF is minimal; it will grow once the custody chain exists.
 
 ---
@@ -387,7 +387,7 @@ existed, is a later step. Until it happens the seal's status is `PENDING`.
   does not prove the date to a third party.
 - The hash is stored in the append-only database (section 8), which blocks edits through
   normal SQL, but a person with write access to the database file could still change it.
-  Closing that gap is what the custody chain and its timestamped head are for (sections 10 and 11).
+  Closing that gap is what the custody chain and its timestamped head are for (sections 10 and 12).
 - Hash-checking on re-open (verification) is not built yet; today the seal is only written.
 
 ---

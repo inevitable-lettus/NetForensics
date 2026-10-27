@@ -162,3 +162,12 @@ def test_help_lists_every_exit_code(capsys):
     assert EXIT_CODES_HELP in help_text
     for code in (EXIT_OK, EXIT_ERROR, EXIT_PENDING, EXIT_NOT_BUILT):
         assert f"\n  {code}  " in help_text
+
+
+def test_corrupt_database_is_one_clear_line_and_exit_1(tmp_path: Path, capsys):
+    store = tmp_path / "store"
+    store.mkdir()
+    (store / "netforensics.sqlite").write_bytes(b"this is not a sqlite database" * 100)
+    code, _ = _run(store, "retry-timestamps")
+    err = capsys.readouterr().err
+    assert code == EXIT_ERROR and err.startswith("error: ") and err.count("\n") == 1

@@ -16,6 +16,7 @@ site generates its CLI page from this parser, so help text is the source of trut
 from __future__ import annotations
 
 import argparse
+import sqlite3
 import sys
 import uuid
 from collections.abc import Sequence
@@ -61,7 +62,7 @@ def main(
     config = _with_store(config, args.store)
     try:
         return args.command(args, config, timestamper, out)
-    except (OSError, ValueError, LookupError) as error:
+    except (OSError, ValueError, LookupError, sqlite3.Error) as error:
         print(f"error: {error}", file=sys.stderr)
         return EXIT_ERROR
 
