@@ -3,6 +3,8 @@ from __future__ import annotations
 import math
 from datetime import datetime, timezone
 
+import pytest
+
 from backend.config import Allowlists, CONFIG, Config
 from backend.detectors.c2_beacon import (
     C2BeaconDetector,
@@ -146,3 +148,39 @@ def test_detector_evaluates_groups_independently():
     findings = C2BeaconDetector(CONFIG).run(flows)
     assert len(findings) == 1
     assert findings[0].what == "10.0.0.5 -> 203.0.113.9"
+
+
+def _even_flows(dst_ip: str, gap_secs: float = 120, count: int = 22) -> list[Flow]:
+    return [_flow("192.168.1.2", dst_ip, i * gap_secs) for i in range(count)]
+
+
+def test_ssdp_multicast_every_120s_is_not_flagged():
+    # ctu-185-1: 192.168.1.2 -> 239.255.255.250, 22 connections, 120s apart, CV 0.
+    assert C2BeaconDetector(CONFIG).run(_even_flows("239.255.255.250")) == []
+
+
+def test_same_timing_to_a_normal_address_still_fires():
+    findings = C2BeaconDetector(CONFIG).run(_even_flows("203.0.113.9"))
+    assert [finding.what for finding in findings] == ["192.168.1.2 -> 203.0.113.9"]
+
+
+def test_limited_broadcast_is_not_flagged():
+    assert C2BeaconDetector(CONFIG).run(_even_flows("255.255.255.255")) == []
+
+
+def test_cidr_allowlist_is_configurable():
+    cfg = Config(allowlists=Allowlists(beacon_dst_cidrs=("203.0.113.0/24",)))
+    assert C2BeaconDetector(cfg).run(_even_flows("203.0.113.9")) == []
+    # Defaults are replaced, not merged: multicast is no longer skipped under this config.
+    assert len(C2BeaconDetector(cfg).run(_even_flows("239.255.255.250"))) == 1
+
+
+def test_range_edge_just_outside_multicast_fires():
+    # 223.255.255.255 is the address just below 224.0.0.0/4.
+    assert len(C2BeaconDetector(CONFIG).run(_even_flows("223.255.255.255"))) == 1
+
+
+def test_malformed_cidr_in_config_fails_loudly():
+    cfg = Config(allowlists=Allowlists(beacon_dst_cidrs=("not-a-network",)))
+    with pytest.raises(ValueError):
+        C2BeaconDetector(cfg).run(_even_flows("203.0.113.9"))

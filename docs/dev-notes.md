@@ -182,7 +182,8 @@ and a 10-minute beacon wobbling 20 s both score about 0.03. Near 0 is robotic.
 **Steps** (`detectors/c2_beacon.py`).
 1. Group flows by (source IP, destination IP); the destination port is ignored so a
    beacon that changes ports is still caught.
-2. Skip allowlisted destinations (empty for now).
+2. Skip allowlisted destinations: exact IPs and address ranges (multicast and broadcast by
+   default, see Limits).
 3. Need at least 10 connections, else stop.
 4. Sort the start times and take the gaps.
 5. Compute CV; if the mean is 0 or there are fewer than 2 gaps it is not computable and
@@ -206,6 +207,13 @@ beaconing, not human traffic."
 - One signal, nothing to corroborate it, so severity is always `MEDIUM`.
 - Legitimate automation (update checks, monitoring, NTP) is regular too; the allowlist is
   the tool for that.
+- **Multicast is skipped on purpose (issue #17).** Devices announce themselves on a timer
+  to shared addresses: SSDP sends to `239.255.255.250` every 120 s (CV 0.000), which once
+  looked like a beacon (`ctu-185-1`). Destinations inside `Allowlists.beacon_dst_cidrs`
+  are skipped, default `224.0.0.0/4` (all multicast; CIDR = an address block) and
+  `255.255.255.255/32` (broadcast). 22 connections 120 s apart to `239.255.255.250`: no
+  finding; the same timing to `203.0.113.9`: a finding. Skips are logged at INFO. Blind
+  spot: C2 hidden in multicast would be missed. A configured list replaces the default.
 - A scan with evenly spaced probes also has CV near 0 and trips this detector.
 - Slow beacons in a short capture never reach 10 connections.
 
@@ -303,6 +311,7 @@ guess to tune on real captures; only the entropy values came from the original p
 | Setting | Value | What it means |
 |---|---|---|
 | `benign_entropy_baseline` | 2.5 | Typical entropy of normal subdomains; shown in evidence, not used to decide. |
+| `beacon_dst_cidrs` allowlist | `224.0.0.0/4`, `255.255.255.255/32` | Address ranges (CIDR) skipped by the beacon detector: multicast and broadcast discovery traffic. |
 | `entropy_threshold` | 4.2 | DNS entropy required before a finding; needs 19+ characters to be reachable. |
 | `subdomain_length_threshold` | 30 (proposed) | Longest subdomain of at least 30 characters is a supporting signal. |
 | `query_rate_threshold` / `query_rate_window_secs` | 50 (proposed) / 60 | At least 50 queries per window to one parent domain is a supporting signal. |

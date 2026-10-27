@@ -7,12 +7,18 @@ Thresholds come from `Config.c2_beacon` — never hard-coded here.
 
 from __future__ import annotations
 
+import ipaddress
+import logging
 import statistics
 from collections.abc import Sequence
 
-from backend.config import C2BeaconConfig
+from backend.config import Allowlists, C2BeaconConfig
 from backend.detectors.base import Detector
 from backend.models import Finding, Flow, Severity
+
+logger = logging.getLogger(__name__)
+
+_Network = ipaddress.IPv4Network | ipaddress.IPv6Network
 
 
 def _group_by_src_dst(flows: Sequence[Flow]) -> dict[tuple[str, str], list[Flow]]:
@@ -48,15 +54,30 @@ def _coefficient_of_variation(iats: Sequence[float]) -> float | None:
     return statistics.stdev(iats) / mean
 
 
+def _is_allowlisted(dst_ip: str, allowlists: Allowlists, networks: Sequence[_Network]) -> bool:
+    """True if the destination is an exact allowlisted IP or inside an allowlisted range.
+    An address that does not parse is never allowlisted."""
+    if dst_ip in allowlists.beacon_dst_ips:
+        return True
+    try:
+        address = ipaddress.ip_address(dst_ip)
+    except ValueError:
+        return False
+    return any(address in network for network in networks)
+
+
 class C2BeaconDetector(Detector):
     name = "c2_beacon"
 
     def run(self, flows: Sequence[Flow]) -> list[Finding]:
         cfg = self.config.c2_beacon
-        allowlist = self.config.allowlists.beacon_dst_ips
+        allowlists = self.config.allowlists
+        # Parsed once; a malformed CIDR in config raises here, loudly, not mid-analysis.
+        networks = [ipaddress.ip_network(cidr) for cidr in allowlists.beacon_dst_cidrs]
         findings: list[Finding] = []
         for (src_ip, dst_ip), group in _group_by_src_dst(flows).items():
-            if dst_ip in allowlist:
+            if _is_allowlisted(dst_ip, allowlists, networks):
+                logger.info("c2_beacon: skipped %s -> %s (allowlisted destination)", src_ip, dst_ip)
                 continue
             finding = self._evaluate(src_ip, dst_ip, group, cfg)
             if finding is not None:
