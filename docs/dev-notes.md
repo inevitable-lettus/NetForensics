@@ -68,7 +68,10 @@ a list of findings, viewable as JSON and as a PDF.
 **Key ideas.** Data flows one way: parsing never touches storage, detectors never touch
 HTTP, the PDF never re-parses. And no machine learning: each detector is a fixed rule with
 a number you can check by hand ("4.4 where normal is 2.5" can be defended; "the model
-flagged it" cannot).
+flagged it" cannot). Every evidence sentence has one shape (`backend/detectors/evidence.py`):
+what was flagged; each measurement with its value, cutoff and "met"/"not met" (the
+detector's own decision; a value is never rounded onto its cutoff, so 49.587 shows "49.6");
+then "Meaning:" in plain words.
 
 **Limits.**
 - The pcap is read twice (DNS, then flows). Fine for small captures.
@@ -139,9 +142,10 @@ far above the ~2.5 benign level.
 
 **Example 3: the rate.** Rate = `count ÷ seconds spanned × 60` (a zero span uses the raw
 count). The blob in 200 queries over 30 s: entropy 4.396 passes, length 40 ≥ 30 hits, rate
-200 ÷ 30 × 60 = 400 ≥ 50 hits, so `HIGH`: "Subdomain 'onzw4p…' of 'evil.example' has Shannon
-entropy 4.40 (benign baseline ~2.5), length 40 chars, with 200 queries in 60s (~400/window) —
-consistent with data encoded into DNS queries."
+200 ÷ 30 × 60 = 400 ≥ 50 hits, so `HIGH`: "…: Shannon entropy 4.40 bits/char (cutoff: at
+least 4.2 bits/char, met; benign baseline about 2.5); subdomain length 40 chars (cutoff: at
+least 30 chars, met); query rate 400.0 queries per 60 s (cutoff: at least 50 queries per
+60 s, met; scaled to a 60 s window from 200 queries in total). Meaning: …"
 
 **Names with non-text bytes (fix for #16).** A DNS label can hold any byte, but the `dpkt`
 library only accepts valid UTF-8 text and used to crash the whole run on a bad byte. Now
@@ -198,9 +202,9 @@ deviation √1.5 = **1.2247**; CV = 1.2247 ÷ 60 = **0.0204**, under 0.1, so it 
 beacon's 60), standard deviation 97.61, CV = **1.586**. Same average, different shape; no
 finding.
 
-The finding reads: "Host A contacted B every ~60s (±1.2s) over 10 connections
-(coefficient of variation 0.020, threshold 0.1) — robotic regularity characteristic of C2
-beaconing, not human traffic."
+The finding reads: "Host A to B: connections 10 (cutoff: at least 10, met); coefficient of
+variation of the gaps 0.020 (cutoff: at most 0.1, met; mean gap 60.0 s, spread ±1.2 s).
+Meaning: …"
 
 **Limits.**
 - Malware that adds random jitter to its timer can push CV above 0.1 on purpose.
@@ -249,7 +253,8 @@ At t=4 the window holds 3 flows: ports 22, 80, 443 = 3, hosts A, B = 2. At t=11 
 flow is 11 s old and dropped; t=2 is 9 s old and stays. Now ports 80, 443, 8080 = 3, hosts
 A, B = 2. Peak 3 ports and 2 hosts, far under 100 and 10: no finding. A scanner touching
 850 ports in 8 seconds would reach 850 and fire `MEDIUM`, or `HIGH` if it also hit 10+
-hosts.
+hosts. Its sentence shows which side fired: "distinct destination ports 850 (cutoff: at least
+100, met); distinct destination hosts 1 (cutoff: at least 10, not met)".
 
 **Limits.**
 - 100 ports and 10 hosts are proposed values, not tuned on real traffic.
