@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.cli import EXIT_ERROR, EXIT_NOT_BUILT, EXIT_OK, EXIT_PENDING, main
+from backend.cli import EXIT_CODES_HELP, EXIT_ERROR, EXIT_NOT_BUILT, EXIT_OK, EXIT_PENDING, main
 from backend.config import CONFIG
 from backend.db.case_repository import SqliteCaseRepository
 from backend.evidence.tsa_client import TsaUnavailableError
@@ -152,3 +152,13 @@ def test_runs_as_a_module(tmp_path: Path):
     assert result.returncode == 0, result.stderr
     assert re.search(r"^SHA-256\s+[0-9a-f]{64}$", result.stdout, re.M)
 
+
+
+def test_help_lists_every_exit_code(capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        main(["--help"])
+    assert exit_info.value.code == 0
+    help_text = capsys.readouterr().out
+    assert EXIT_CODES_HELP in help_text
+    for code in (EXIT_OK, EXIT_ERROR, EXIT_PENDING, EXIT_NOT_BUILT):
+        assert f"\n  {code}  " in help_text

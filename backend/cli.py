@@ -9,9 +9,8 @@ parses or judges evidence itself.
 `verify` and `tamper-demo` are listed but not built: they need the core custody
 chain, timestamp check and case verification (#10, #11, #12).
 
-Exit codes: 0 success; 1 error (one line on stderr); 2 argparse usage error, or
-seals left PENDING by retry-timestamps; 3 command not built yet. `verify` will add
-its own 0 = INTACT, 1 = ALTERED, 2 = INCOMPLETE when it lands.
+Exit codes are defined once, in `EXIT_CODES_HELP`, which `--help` prints; the docs
+site generates its CLI page from this parser, so help text is the source of truth.
 """
 
 from __future__ import annotations
@@ -35,6 +34,13 @@ EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_PENDING = 2
 EXIT_NOT_BUILT = 3
+EXIT_CODES_HELP = f"""exit codes:
+  {EXIT_OK}  success (retry-timestamps: no seal left PENDING)
+  {EXIT_ERROR}  error: missing file, not a pcap, too large, stored copy altered
+     (one "error:" line on stderr)
+  {EXIT_PENDING}  retry-timestamps left at least one seal PENDING; also a usage error
+  {EXIT_NOT_BUILT}  command not built yet (verify, tamper-demo)
+verify will use 0 = INTACT, 1 = ALTERED, 2 = INCOMPLETE when it lands."""
 
 _NOT_BUILT = "not built yet (needs #10/#11/#12: custody chain, timestamp check, case verification)"
 _NO_TIMESTAMPER = (
@@ -61,7 +67,12 @@ def main(
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m backend.cli", description=__doc__.split("\n\n")[0])
+    parser = argparse.ArgumentParser(
+        prog="python -m backend.cli",
+        description="Seal, analyse and store packet captures as tamper-evident cases.",
+        epilog=EXIT_CODES_HELP,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--store", type=Path, help="evidence store directory "
                         f"(default: {CONFIG.evidence.evidence_store_dir})")
     commands = parser.add_subparsers(required=True, metavar="command")
