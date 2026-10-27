@@ -23,11 +23,16 @@ WHAT A PASSING CHECK MEANS
   4. The token's message imprint is SHA-256 and equals the seal's SHA-256.
   5. At request time, its nonce equals the one we sent (a replayed old reply fails).
 
-Why the TSA certificate is pinned, not just the CA: rfc3161-client 1.0.8 adds the
-certificates embedded in a reply to the set it trusts. A forged reply that embeds
-its own CA and its own "TSA" certificate then verifies against ANY configured root
-(reproduced in tests/test_timestamp.py with tests/fixtures/tsa/forged_own_ca.tsr).
-Pinning the exact signing certificate makes the library refuse any other signer.
+Why the TSA certificate is pinned, not just the CA: rfc3161-client up to 1.0.8 adds
+the certificates embedded in a reply to the set it trusts, so a forged reply that
+embeds its own CA and its own "TSA" certificate verifies against ANY configured root
+(reproduced with tests/fixtures/tsa/forged_own_ca.tsr). 1.0.9 refuses that forgery
+itself; we keep the pin as defence in depth, so the check never depends on which
+library version is installed.
+
+Only "granted" (status 0) is accepted. "waiting" (3) means try later. Every other
+status, including "granted with modifications" (1), is refused: the library verifier
+only accepts unmodified grants, and a refusal does not improve by asking again.
 """
 
 from __future__ import annotations
@@ -165,17 +170,33 @@ def verify_reply(
         return _check_decoded(decode_reply(reply_der), digest, trust, nonce)
     except TimestampInvalidError:
         raise
+    except TsaUnavailableError as error:  # "waiting" carries no token to check
+        raise TimestampInvalidError(str(error)) from error
     except Exception as error:  # noqa: BLE001 — see docstring: untrusted input
         raise TimestampInvalidError(
             f"The token cannot be read or checked: {type(error).__name__}: {error}"
         ) from error
 
 
+def _require_granted(reply: TimeStampResponse) -> None:
+    """Granted passes; "waiting" is a TsaUnavailableError (retry later); any other or
+    unknown status is a TimestampInvalidError."""
+    try:
+        status = PKIStatus(reply.status)
+    except ValueError as error:
+        raise TimestampInvalidError(f"The TSA answered with unknown status {reply.status}.") from error
+    if status is PKIStatus.GRANTED:
+        return
+    if status is PKIStatus.WAITING:
+        raise TsaUnavailableError("The TSA asked us to wait (status 3, waiting).")
+    raise TimestampInvalidError(f"The TSA did not grant a timestamp (status {status.value}, "
+                                f"{status.name.lower()}).")
+
+
 def _check_decoded(
     reply: TimeStampResponse, digest: bytes, trust: TsaTrust, nonce: int | None
 ) -> datetime:
-    if PKIStatus(reply.status) != PKIStatus.GRANTED:
-        raise TimestampInvalidError(f"The TSA did not grant a timestamp (status {reply.status}).")
+    _require_granted(reply)
     imprint = reply.tst_info.message_imprint
     if imprint.hash_algorithm != _SHA256_OID:
         raise TimestampInvalidError(f"The token covers a {imprint.hash_algorithm.dotted_string} "
@@ -203,18 +224,16 @@ def make_timestamper(
     transport: httpx.BaseTransport | None = None,
     new_nonce: Callable[[], int] = lambda: secrets.randbits(64),
 ) -> Timestamper:
-    """Return `(sha256_hex) -> (reply_der, gen_time)` for `retry_pending`. A refused or
-    non-granted reply raises TsaUnavailableError (retried later, seal stays PENDING);
-    a reply that fails a check raises TimestampInvalidError and is never stored."""
+    """Return `(sha256_hex) -> (reply_der, gen_time)` for `retry_pending`. "waiting"
+    raises TsaUnavailableError (retried with backoff, seal stays PENDING); any other
+    refusal, or a reply that fails a check, raises TimestampInvalidError and is never
+    stored (the retry batch reports it as an error)."""
     trust = load_trust(config)
 
     def timestamp(sha256_hex: str) -> tuple[bytes, datetime]:
         nonce = new_nonce()
         reply_der = request_timestamp(build_request(sha256_hex, nonce), config, transport)
-        reply = decode_reply(reply_der)
-        if PKIStatus(reply.status) != PKIStatus.GRANTED:
-            raise TsaUnavailableError(f"TSA {config.evidence.tsa_url} did not grant a timestamp "
-                                      f"(status {reply.status}).")
+        _require_granted(decode_reply(reply_der))
         return reply_der, verify_reply(reply_der, sha256_hex, trust, nonce)
 
     return timestamp
@@ -226,23 +245,42 @@ def make_timestamper(
 
 
 def check_seal_timestamp(seal: SealRecord, trust: TsaTrust) -> CheckResult:
-    """The timestamp check as a magistrate-readable CheckResult. PENDING is "not run"
-    (passed=None), never a pass. The nonce is not re-checked: it only proves the
-    reply was fresh when it arrived, which `make_timestamper` already did."""
-    if seal.timestamp_status is TimestampStatus.PENDING or seal.rfc3161_token is None:
+    """The timestamp check as a magistrate-readable CheckResult. Only a seal that was
+    never stamped (PENDING, no token, no genTime) is "not run" (passed=None), never a
+    pass. Any half-stamped combination fails: the record moves PENDING -> GRANTED in one
+    database update, so a mix can only come from editing it. The nonce is not
+    re-checked: it only proves the reply was fresh when it arrived, which
+    `make_timestamper` already did."""
+    inconsistency = _inconsistency(seal)
+    if inconsistency is not None:
+        return CheckResult(CHECK_NAME, False, f"The timestamp record is inconsistent "
+                           f"({inconsistency}): it was edited after it was written.")
+    if seal.timestamp_status is TimestampStatus.PENDING:
         return CheckResult(CHECK_NAME, None, "No trusted timestamp yet: the seal is PENDING, so "
                            "when the evidence was sealed rests on this system's clock alone.")
     try:
-        gen_time = verify_reply(seal.rfc3161_token, seal.sha256_hash, trust)
+        gen_time = verify_reply(seal.rfc3161_token or b"", seal.sha256_hash, trust)
     except TimestampInvalidError as error:
         return CheckResult(CHECK_NAME, False, f"The stored timestamp token does not hold: {error}")
-    if seal.timestamp_gen_time is not None and seal.timestamp_gen_time != gen_time:
+    if seal.timestamp_gen_time != gen_time:
         return CheckResult(CHECK_NAME, False, f"The stored genTime {seal.timestamp_gen_time} differs "
                            f"from the {gen_time} signed inside the token: the record was edited.")
     return CheckResult(
         CHECK_NAME,
         True,
         f"{trust.tsa_name} signed SHA-256 {seal.sha256_hash} at {gen_time.isoformat()} "
-        "(its clock, not ours); the signature verifies with the pinned TSA certificate.",
+        f"(its clock; this system logged receipt at {seal.received_at.isoformat()}); the "
+        "signature verifies with the pinned TSA certificate.",
     )
 
+
+def _inconsistency(seal: SealRecord) -> str | None:
+    has_token = bool(seal.rfc3161_token)
+    has_time = seal.timestamp_gen_time is not None
+    if seal.timestamp_status is TimestampStatus.GRANTED and not (has_token and has_time):
+        missing = " and ".join(n for n, ok in (("token", has_token), ("genTime", has_time)) if not ok)
+        return f"GRANTED but no {missing}"
+    if seal.timestamp_status is TimestampStatus.PENDING and (has_token or has_time):
+        present = " and ".join(n for n, ok in (("a token", has_token), ("a genTime", has_time)) if ok)
+        return f"PENDING but holds {present}"
+    return None

@@ -29,10 +29,11 @@ This is the real product. Make tamper-evidence *genuine*, not cosmetic.
 - Record the hash together with an **RFC 3161 trusted timestamp** from a Timestamp
   Authority, plus the received-at time.
 - A TSA reply is stored only if it is granted, signed by the **pinned** TSA certificate
-  (not merely one chaining to its CA: the client library trusts certificates embedded
-  in the reply), valid at its genTime, marked for time stamping, covers SHA-256 of
+  (not merely one chaining to its CA: rfc3161-client up to 1.0.8 trusts certificates
+  embedded in the reply), valid at its genTime, marked for time stamping, covers SHA-256 of
   exactly the sealed hash, and echoes our nonce. Bad replies are refused, not stored;
-  non-granted statuses are retried. The whole DER reply is stored, so
+  only "waiting" is retried; any other status is refused. A stored record that is half
+  stamped (GRANTED without token or genTime, PENDING with either) fails verification. The whole DER reply is stored, so
   `openssl ts -verify` can re-check it.
 - This establishes the foundational evidentiary fact: *"this is the exact evidence,
   unaltered, as received at this time."* — the digital equivalent of sealing and signing

@@ -15,7 +15,7 @@ from pathlib import Path
 import httpx
 import pytest
 from cryptography import x509
-from rfc3161_client import VerifierBuilder, decode_timestamp_response
+from rfc3161_client import VerificationError, VerifierBuilder, decode_timestamp_response
 
 from backend.config import CONFIG, Config
 from backend.db.storage import Storage
@@ -35,7 +35,12 @@ VECTOR_SHA256 = "3880d492474a081da2f86d7e886aa25d579b1f4bcc3f9e387c6d681aaa76a3e
 VECTOR_NONCE = 0x5EEDF00DCAFEBEEF
 VECTOR_GEN_TIME = datetime(2026, 10, 27, 9, 29, 26, tzinfo=timezone.utc)
 OTHER_SHA256 = "0" * 64
-REJECTION_REPLY = bytes.fromhex("3005300302 0102".replace(" ", ""))  # status: rejection (2)
+def _status_only_reply(status: int) -> bytes:
+    """A TimeStampResp carrying only a status: SEQUENCE { SEQUENCE { INTEGER status } }."""
+    return bytes([0x30, 0x05, 0x30, 0x03, 0x02, 0x01, status])
+
+
+REJECTION_REPLY = _status_only_reply(2)
 
 
 def _fixture(name: str) -> bytes:
@@ -117,11 +122,16 @@ def test_reply_signed_by_anyone_but_the_pinned_tsa_is_refused(trust, name):
 
 def test_why_the_tsa_certificate_is_pinned(trust):
     """Documents the library behaviour the pin defends against: with only a root
-    configured, rfc3161-client 1.0.8 accepts a forgery that embeds its own CA. If this
-    test starts failing, the library got stricter; the pin stays either way."""
+    configured, rfc3161-client up to 1.0.8 accepts a forgery that embeds its own CA.
+    1.0.9 refuses it by itself; then this test skips and the pin stays as defence
+    in depth (the forgery tests above pass on every version)."""
     forged = decode_timestamp_response(_fixture("forged_own_ca.tsr"))
     verifier = VerifierBuilder(roots=[trust.ca_certificate]).build()
-    assert verifier.verify(forged, bytes.fromhex(VECTOR_SHA256))
+    try:
+        accepted = verifier.verify(forged, bytes.fromhex(VECTOR_SHA256))
+    except VerificationError:
+        pytest.skip("this rfc3161-client refuses the forgery without the pin")
+    assert accepted
 
 
 def test_every_single_byte_flip_in_the_signed_token_is_refused(trust):
@@ -177,9 +187,18 @@ def test_timestamper_returns_the_whole_reply_and_its_gen_time():
     assert _timestamper(reply)(VECTOR_SHA256) == (reply, VECTOR_GEN_TIME)
 
 
-def test_timestamper_treats_a_rejection_as_unavailable_so_it_is_retried():
-    with pytest.raises(TsaUnavailableError, match="did not grant"):
-        _timestamper(REJECTION_REPLY)(VECTOR_SHA256)
+def test_timestamper_retries_only_a_waiting_status():
+    with pytest.raises(TsaUnavailableError, match="wait"):
+        _timestamper(_status_only_reply(3))(VECTOR_SHA256)
+
+
+@pytest.mark.parametrize(("status", "message"), [
+    (1, "granted_with_mods"), (2, "rejection"), (5, "revocation_notification"),
+    (9, "unknown status 9"),
+])
+def test_timestamper_refuses_every_other_status(status, message):
+    with pytest.raises(TimestampInvalidError, match=message):
+        _timestamper(_status_only_reply(status))(VECTOR_SHA256)
 
 
 def test_timestamper_refuses_a_forged_reply():
@@ -246,3 +265,25 @@ def test_corrupted_stored_token_fails(trust):
 def test_live_freetsa_round_trip():
     reply, gen_time = make_timestamper(CONFIG)(VECTOR_SHA256)
     assert verify_reply(reply, VECTOR_SHA256, load_trust(CONFIG)) == gen_time
+
+
+@pytest.mark.parametrize(("changes", "reason"), [
+    ({"rfc3161_token": None}, "GRANTED but no token"),
+    ({"rfc3161_token": b""}, "GRANTED but no token"),
+    ({"timestamp_gen_time": None}, "GRANTED but no genTime"),
+    ({"rfc3161_token": None, "timestamp_gen_time": None}, "GRANTED but no token and genTime"),
+    ({"timestamp_status": TimestampStatus.PENDING}, "PENDING but holds a token and a genTime"),
+    ({"timestamp_status": TimestampStatus.PENDING, "timestamp_gen_time": None},
+     "PENDING but holds a token"),
+])
+def test_half_stamped_record_fails_instead_of_reading_as_pending(trust, changes, reason):
+    check = check_seal_timestamp(_granted(**changes), trust)
+    assert check.passed is False
+    assert f"inconsistent ({reason})" in check.evidence
+
+
+def test_passing_check_shows_both_clocks(trust):
+    check = check_seal_timestamp(_granted(), trust)
+    assert check.passed is True
+    assert "2026-10-27T09:29:26+00:00" in check.evidence
+    assert "logged receipt at 2026-10-27T09:29:00+00:00" in check.evidence
