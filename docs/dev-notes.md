@@ -25,9 +25,10 @@ arithmetic shown in the text), not estimated.
 8. [Evidence storage: SQLite and content-addressed files](#8-evidence-storage-sqlite-and-content-addressed-files)
 9. [Trusted-timestamp transport and retry](#9-trusted-timestamp-transport-and-retry)
 10. [Custody hash chain](#10-custody-hash-chain)
-11. [Not built yet](#11-not-built-yet)
-12. [JA3 fingerprinting (proposed)](#12-ja3-fingerprinting-proposed)
-13. [Open questions for Garv](#13-open-questions-for-garv)
+11. [The command-line tool](#11-the-command-line-tool)
+12. [Not built yet](#12-not-built-yet)
+13. [JA3 fingerprinting (proposed)](#13-ja3-fingerprinting-proposed)
+14. [Open questions for Garv](#14-open-questions-for-garv)
 
 ## Words used throughout
 
@@ -51,7 +52,8 @@ of the file plus a list of findings, viewable as JSON and as a PDF.
 
 **How it works, step by step.**
 
-1. **Upload** (`POST /api/cases`, `backend/api/app.py`). The file is written to disk in
+1. **Upload** (`POST /api/cases`, `backend/api/app.py`, or the CLI, section 11; both
+   use `backend/intake.py`). The file is written to disk in
    1 MiB chunks, never held whole in memory. If it passes 512 MiB the upload is cut off and
    the user gets HTTP 413 ("too large").
 2. **Validate** (`backend/ingest/pcap_validation.py`). The first 4 bytes of a pcap file are
@@ -91,7 +93,7 @@ of the file plus a list of findings, viewable as JSON and as a PDF.
 - Only classic pcap, Ethernet, IPv4, TCP and UDP. No pcapng, no IPv6, no live capture.
 - The database refuses edits made through normal SQL, but someone with write access to
   the database file can still change it. Proving nothing changed needs the custody
-  chain and its timestamped head (sections 10 and 11).
+  chain and its timestamped head (sections 10 and 12).
 - The PDF is minimal; it will grow once the custody chain exists.
 
 ---
@@ -385,7 +387,7 @@ existed, is a later step. Until it happens the seal's status is `PENDING`.
   does not prove the date to a third party.
 - The hash is stored in the append-only database (section 8), which blocks edits through
   normal SQL, but a person with write access to the database file could still change it.
-  Closing that gap is what the custody chain and its timestamped head are for (sections 10 and 11).
+  Closing that gap is what the custody chain and its timestamped head are for (sections 10 and 12).
 - Hash-checking on re-open (verification) is not built yet; today the seal is only written.
 
 ---
@@ -593,7 +595,48 @@ shasum -a 256` command).
 
 ---
 
-## 11. Not built yet
+## 11. The command-line tool
+
+_Issue #4, part 1 (`seal`, `analyze`, `retry-timestamps`)._
+
+**What it does.** Runs the evidence layer from a terminal, without the web app:
+`python -m backend.cli [--store DIR] <command>`. `--store DIR` keeps the blobs and the
+database under `DIR` instead of `evidence_store/`.
+
+- `seal <pcap>` / `analyze <pcap>`: the same intake as a web upload (`backend/intake.py`):
+  copy the file into staging (your original is only read), check it is a pcap, seal,
+  analyse, store. `seal` prints the case id, both hashes and the timestamp status;
+  `analyze` also prints every finding with its evidence line. Both analyse, because a
+  stored case cannot get findings added later.
+- `retry-timestamps`: retries PENDING seals (section 9).
+- `verify`, `tamper-demo`: listed, but say "not built yet" until #12.
+
+**Key concept: the exit code**, a number a program returns when it ends, read by
+scripts instead of the text. 0 = success, 1 = error (one `error:` line), 2 = seals still
+PENDING after `retry-timestamps` (or a mistyped command), 3 = not built yet. `verify`
+will use 0 = INTACT, 1 = ALTERED, 2 = INCOMPLETE. `--help` prints this table.
+
+**Worked example.** `analyze` on the 12-packet test capture (one connection every 60 s):
+
+```
+File       beacon.pcap (864 bytes)
+SHA-256    e21071f3b192d0eee832c401d44ad446ef7e47e2c62748f7ed53c4a1d5c7f76f
+Timestamp  PENDING (retry later: python -m backend.cli retry-timestamps)
+Flows      12
+[MEDIUM] c2_beacon: 10.0.0.5 -> 203.0.113.7
+```
+
+12 packets with different source ports make 12 flows; the gaps are all 60 s, so their
+spread is 0 and the coefficient of variation is 0 ÷ 60 = 0.000, under the 0.1 cutoff
+(section 4). Exit code 0.
+
+**Limits.** No `verify` / `tamper-demo` yet (needs #12). The CLI passes no timestamper
+yet, so seals stay PENDING from the CLI. Same 512 MiB limit as uploads. No custody
+entry is written at intake yet. Plain text only, no colour.
+
+---
+
+## 12. Not built yet
 
 Listed so nobody mistakes a plan for a feature. Each gets its own section above when it
 lands (standing rule).
@@ -605,12 +648,13 @@ lands (standing rule).
   checking the returned token is #11, so seals stay `PENDING` until then.
 - **Case verification and the tamper demo:** re-hash the stored file, compare to the seal,
   walk the chain. The 10-second flip-one-byte demonstration.
+  The CLI lists `verify` and `tamper-demo` already (section 11).
 - **JA3 fingerprinting (4th detector):** matches TLS handshake fingerprints to a known
-  malware list. Deliberately deferred; proposal in section 12.
+  malware list. Deliberately deferred; proposal in section 13.
 
 ---
 
-## 12. JA3 fingerprinting (proposed)
+## 13. JA3 fingerprinting (proposed)
 
 _Status: concept draft for human approval. No JA3 code exists yet. Written 2026-10-20._
 
@@ -700,11 +744,11 @@ No small public capture with a known SSLBL hit has a clear licence. Plan:
 - One detector module, one finding per (client IP, JA3), the same interface as the other three.
 
 ### Open questions
-The five decisions this feature needs are in section 13, question C.
+The five decisions this feature needs are in section 14, question C.
 
 ---
 
-## 13. Open questions for Garv
+## 14. Open questions for Garv
 
 Read the whole document first, then decide here in one sitting. Each question stands
 alone: terms are defined where they first appear in that question, there is a small
@@ -869,9 +913,9 @@ what is on the wire (about 55 bytes), and evidence should state what is true.
 
 Decision: 
 
-#### C. JA3 fingerprinting: five questions (Dwight's draft, section 12)
+#### C. JA3 fingerprinting: five questions (Dwight's draft, section 13)
 
-Read section 12 first; it explains what **TLS** (the encryption behind HTTPS), the
+Read section 13 first; it explains what **TLS** (the encryption behind HTTPS), the
 ClientHello, JA3, MD5, GREASE, and the blocklist are. In short: JA3 turns how a program
 introduces itself during the TLS handshake into a 32-character label, then checks the label
 against a list of labels seen in malware.
