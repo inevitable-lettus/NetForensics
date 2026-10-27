@@ -20,13 +20,12 @@ own code or plain arithmetic.
 6. [The seal: hashing the evidence](#6-the-seal-hashing-the-evidence)
 7. [Current thresholds and what they mean](#7-current-thresholds-and-what-they-mean)
 8. [Evidence storage: SQLite and content-addressed files](#8-evidence-storage-sqlite-and-content-addressed-files)
-9. [Trusted-timestamp transport and retry](#9-trusted-timestamp-transport-and-retry)
-10. [Checking the timestamp token](#10-checking-the-timestamp-token)
-11. [Custody hash chain](#11-custody-hash-chain)
-12. [The command-line tool](#12-the-command-line-tool)
-13. [Not built yet](#13-not-built-yet)
-14. [JA3 fingerprinting (approved design, not built)](#14-ja3-fingerprinting-approved-design-not-built)
-15. [Decisions log](#15-decisions-log)
+9. [Trusted timestamps: transport, retry and checking](#9-trusted-timestamps-transport-retry-and-checking)
+10. [Custody hash chain](#10-custody-hash-chain)
+11. [The command-line tool](#11-the-command-line-tool)
+12. [Not built yet](#12-not-built-yet)
+13. [JA3 fingerprinting (approved design, not built)](#13-ja3-fingerprinting-approved-design-not-built)
+14. [Decisions log](#14-decisions-log)
 
 ## Words used throughout
 
@@ -49,7 +48,7 @@ own code or plain arithmetic.
 a list of findings, viewable as JSON and as a PDF.
 
 **Steps.**
-1. **Upload** (`POST /api/cases`, or the CLI, section 12; both use `backend/intake.py`). Written to disk in 1 MiB chunks; over 512 MiB gets HTTP 413.
+1. **Upload** (`POST /api/cases`, or the CLI, section 11; both use `backend/intake.py`). Written to disk in 1 MiB chunks; over 512 MiB gets HTTP 413.
 2. **Validate** (`ingest/pcap_validation.py`). The first 4 bytes are a "magic number" naming
    the file type. pcapng and anything else are refused (HTTP 400), so bad input never
    reaches the detectors.
@@ -75,7 +74,7 @@ flagged it" cannot).
 - The pcap is read twice (DNS, then flows). Fine for small captures.
 - Classic pcap, Ethernet, IPv4, TCP and UDP only. No pcapng, IPv6 or live capture.
 - The database refuses edits through normal SQL, but someone with write access to the file
-  can still change it. The custody chain plus a timestamped head covers that (sections 11, 13).
+  can still change it. The custody chain plus a timestamped head covers that (sections 10, 12).
 - The PDF is minimal.
 
 ---
@@ -291,7 +290,7 @@ the trusted timestamp (proving *when*) comes later, and until then the status is
 - With no trusted timestamp yet, "received at" is our own clock and proves nothing to a third
   party.
 - The append-only database blocks edits through normal SQL but not someone with write access
-  to the file; the custody chain and its timestamped head close that gap (sections 11, 13).
+  to the file; the custody chain and its timestamped head close that gap (sections 10, 12).
 - Hash-checking on re-open (verification) is not built; today the seal is only written.
 
 ---
@@ -315,7 +314,7 @@ guess to tune on real captures; only the entropy values came from the original p
 | `max_upload_bytes` | 512 MiB (proposed) | Larger uploads are rejected. |
 | `upload_chunk_bytes` / `hash_chunk_bytes` | 1 MiB | Streaming size; keeps memory flat. |
 | `hash_algorithm` | blake3 | Primary seal hash. |
-| `tsa_url` | `https://freetsa.org/tsr` | Free timestamp authority (transport section 9, token checking section 10). |
+| `tsa_url` | `https://freetsa.org/tsr` | Free timestamp authority (transport and token checking, section 9). |
 | `tsa_timeout_secs` | 5 | Total deadline for one request, then it counts as unavailable. |
 | `tsa_max_reply_bytes` | 64 KiB | Larger replies are refused (real ones are a few KB). |
 | `tsa_retry_attempts` / `tsa_retry_backoff_secs` / `tsa_retry_backoff_max_secs` | 3 / 2s / 30s | Retries per PENDING case, waiting 2s, 4s, … up to 30s. |
@@ -368,91 +367,48 @@ Someone edits the file to `Pcap-bytes`; its SHA-256 is now completely different,
 
 ---
 
-## 9. Trusted-timestamp transport and retry
+## 9. Trusted timestamps: transport, retry and checking
 
-_Issue #3, PR #14._
+_Issue #3, PR #14 (transport); issue #11, PR #34 (`backend/evidence/timestamp.py`)._
 
-**What it does.** Sends the seal's fingerprint to an outside Timestamp Authority and stores
-the signed reply, without a slow or missing connection ever breaking an upload or producing
-a fake timestamp.
+**What it does.** Sends the seal's SHA-256 to an outside Timestamp Authority (TSA), checks
+the signed reply, and stores it, without a slow TSA ever breaking an upload or a forged
+reply ever being stored.
 
-**Key ideas.** *RFC 3161*: the standard for trusted timestamps; a *TSA* (we use freetsa.org)
-signs "I saw this hash at time T" and returns a *token*. As a third party, it cannot be
-back-dated by us. *PENDING / GRANTED*: waiting for a token / holding one. *Exponential
-backoff*: waiting longer after each failure. *Circuit breaker*: after several failures in a
-row, stop for now.
+**Key ideas.** *RFC 3161*: the standard for trusted timestamps; the TSA (freetsa.org) signs
+"I saw this hash at time T" and returns a *token* we cannot back-date. *PENDING / GRANTED*:
+waiting for a token / holding one. *Pinning*: we keep our own copy of FreeTSA's certificate
+and its CA (`backend/evidence/certs/`) and accept only that exact signer. *Nonce*: a random
+number the TSA must echo, so an old reply cannot be replayed.
 
 **Steps.**
-1. `request_timestamp` POSTs the request to the TSA in a background worker; the caller waits
-   at most `tsa_timeout_secs` in total and reads the reply under a 64 KiB cap. Timeout,
-   connection or DNS failure, non-200 status, or an oversized or empty reply raises
-   `TsaUnavailableError`. It never retries itself.
-2. On upload the API makes **one** attempt; on failure the case is still stored with the seal
-   PENDING. The upload never fails because of the TSA.
-3. `retry_all_pending` walks every PENDING case with up to `tsa_retry_attempts` tries and
-   backoff. A token is stored through the database's one-time PENDING → GRANTED rule; a
-   lost race is "already granted", an empty token is refused.
-4. After `tsa_batch_stop_after_unavailable` cases in a row find the TSA down, the rest of
-   the run is skipped and left PENDING.
+1. Upload makes **one** attempt, with one total deadline (`tsa_timeout_secs`) and a 64 KiB
+   reply cap; on failure the case is stored PENDING. The upload never fails because of the TSA.
+2. Before storing, five checks must pass: status granted; signed by the pinned certificate,
+   valid at the token's time; certificate marked for time stamping; token covers SHA-256 and
+   exactly our hash; nonce matches. "Waiting" stays PENDING; anything else is refused.
+3. `retry_all_pending` retries PENDING cases with exponential backoff, and stops the run
+   after `tsa_batch_stop_after_unavailable` cases in a row find the TSA down.
+4. Re-checking a stored seal: a half-filled record (GRANTED without a token, PENDING with one)
+   fails as edited, not as "not stamped yet".
 
-**Example: backoff and breaker.** 3 attempts, base 2s, cap 30s: wait min(2·2⁰, 30) = 2s after
-failure 1, min(2·2¹, 30) = 4s after failure 2, none after attempt 3. One case costs at most
-2 + 4 = 6s of waiting plus 3 deadlines (3 × 5s = 15s), about 21s. With the TSA down and 100
-PENDING cases, the breaker stops after 3 cases (~63s) instead of ~35 minutes.
-
-**Example: the total deadline.** httpx's timeout counts per network read, so a server
-dripping 1 byte every 0.5s would never trip a 5s read timeout. Running the whole request in
-a worker with one total deadline fixes it: with `tsa_timeout_secs = 2`, Pam's body-drip test
-stops at 2.0s instead of 49.9s, and her header-drip test at 2.0s instead of running past 70s.
+**Example: a real reply (2026-10-27).** Request 69 bytes: SHA-256 `3880d492…a3e7`, nonce
+`0x5EEDF00DCAFEBEEF`. FreeTSA answered 4,644 bytes: granted, same hash and nonce, `09:29:26
+UTC`. Pam flipped every bit of every byte (37,152 tries): every change to hash, time, nonce
+or signature is refused; only the reply's spare CA copy and 11 label bytes can change.
 
 **Limits.**
-- This code moves bytes; checking the token is section 10.
-- HTTP redirects are not followed (a 307 counts as "unavailable"): the TSA URL is fixed
-  configuration.
+- `rfc3161-client` up to 1.0.8 trusts certificates carried inside a reply, so we pin the TSA
+  certificate itself (1.0.9 fixes this; the pin stays).
+- Revocation is not checked; one pinned certificate (renewed Feb 2026), so older tokens fail.
+- Uploads can wait up to 5 s on a slow TSA. The CLI passes no timestamper yet.
+- Deleting a token *and* resetting to PENDING looks like "never stamped": closed by a
+  custody entry on grant (#12), which also re-checks tokens during verification.
+- Redirects are not followed (a 307 counts as "unavailable"); the TSA URL is fixed config.
 
 ---
 
-## 10. Checking the timestamp token
-
-_Issue #11, PR #34 (`backend/evidence/timestamp.py`)._
-
-**What it does.** Builds the request sent to the TSA and checks the reply before it is
-stored, so a forged or wrong token never reaches the database.
-
-**Key ideas.** *Pinning*: we keep our own copy of FreeTSA's certificate and its CA
-(`backend/evidence/certs/`) and accept only a signature from that exact certificate.
-*Nonce*: a random number we send that the TSA must echo, so an old reply cannot be replayed.
-
-**Steps.**
-1. Five checks must all pass: status "granted"; signed by the pinned certificate, valid at
-   the token's own time; that certificate is marked for time stamping; the token covers
-   SHA-256 and exactly our hash; the nonce matches.
-2. A "waiting" status is retried later (section 9); any other failure is refused, not stored.
-3. Re-checking a stored seal: a half-filled record (GRANTED without a token, PENDING with
-   one) fails as edited instead of reading as "not stamped yet".
-
-**Example: a real reply (2026-10-27).** Request: 69 bytes with SHA-256 `3880d492…a3e7` and
-nonce `0x5EEDF00DCAFEBEEF`. FreeTSA answered 4,644 bytes: granted, same hash and nonce,
-time `09:29:26 UTC`. Pam flipped every bit of every byte (37,152 tries): every change to the
-hash, time, nonce or signature is refused. Only flips in parts that vouch for nothing pass:
-the reply's spare copy of the CA certificate (we use our own) and 11 label bytes.
-
-**Why pin the certificate, not just the CA.** `rfc3161-client` up to 1.0.8 trusts
-certificates carried inside the reply, so a forgery with its own home-made CA passed.
-1.0.9 refuses it itself; we keep the pin either way (tested with a real forged file).
-
-**Limits.**
-- Revocation is not checked. One pinned certificate (renewed Feb 2026): tokens from an
-  older FreeTSA certificate fail until it is added.
-- The web app waits up to `tsa_timeout_secs` (5 s) for the TSA before storing PENDING. The
-  CLI passes no timestamper yet.
-- The stored `tsa_url` is not checked; the evidence names the TSA from the pinned certificate.
-- Deleting a token *and* resetting the seal to PENDING looks like "never stamped"; a custody
-  entry on grant closes that (#12). Re-checking during case verification is `verify.py` (#12).
-
----
-
-## 11. Custody hash chain
+## 10. Custody hash chain
 
 _Issue #10, PR #19 (core; human review)._
 
@@ -498,7 +454,7 @@ To hide the edit they must rewrite every later entry too. `G` can be reproduced 
 
 ---
 
-## 12. The command-line tool
+## 11. The command-line tool
 
 _Issue #4, part 1 (`seal`, `analyze`, `retry-timestamps`)._
 
@@ -538,21 +494,21 @@ written at intake yet. Plain text only, no colour.
 
 ---
 
-## 13. Not built yet
+## 12. Not built yet
 
 Listed so nobody mistakes a plan for a feature. Each gets its own section above when it
 lands.
 
-- **Custody log wired into uploads:** the chain logic exists (section 11) but the API does
+- **Custody log wired into uploads:** the chain logic exists (section 10) but the API does
   not append entries yet.
 - **Case verification and the tamper demo:** re-hash the stored file, compare to the seal,
   walk the chain. The 10-second flip-one-byte demonstration. The CLI already lists
-  `verify` and `tamper-demo` (section 12).
-- **JA3 fingerprinting (4th detector):** deferred; approved design in section 14.
+  `verify` and `tamper-demo` (section 11).
+- **JA3 fingerprinting (4th detector):** deferred; approved design in section 13.
 
 ---
 
-## 14. JA3 fingerprinting (approved design, not built)
+## 13. JA3 fingerprinting (approved design, not built)
 
 _Human approved the design on 2026-10-22. Built one function at a time, each reviewed
 before the next. No JA3 code exists yet._
@@ -594,7 +550,7 @@ the evidence states the list's age, and the evidence layer records its hash and 
 
 ---
 
-## 15. Decisions log
+## 14. Decisions log
 
 The human approved every recommendation in the former "Open questions" section on
 2026-10-22. Recorded here as a log; background lives in the linked PRs and sections.
@@ -603,7 +559,7 @@ The human approved every recommendation in the former "Open questions" section o
 |---|---|---|
 | A | Custody chain, PR #19 | Option 1: approve all five choices and merge #19. The choices: SHA-256 for the chain (pinned in code, not config); hash a canonical JSON form of each entry; refuse floats (store `"4.2"` as text); no Unicode normalisation; an empty log counts as broken. Pam's hard test: 9,218 random corruptions, all caught at the exact entry. Fixes landed at `e602d8d` (169 tests): algorithm and tags pinned in code, nesting depth capped at 32, a seal time with no timezone reported as a break. |
 | B | DNS non-text bytes, PR #18 | Option 3: keep escaping now (`0xE4` becomes `\xe4`), switch to raw bytes as a follow-up. On `dns-iodine.pcap` the longest label is 55 bytes raw but 193 characters escaped, and entropy 5.74 raw vs 3.43 escaped, so errors lean toward missing a tunnel. It still fires HIGH (another label reaches 4.81). |
-| C | JA3, section 14 | (1) Use the 2021 SSLBL list and state its age in every finding. (2) dpkt only, plus a one-time comparison with Wireshark on your own browser capture. (3) Accept missing split ClientHellos; no TCP reassembly. (4) Always MEDIUM. (5) Seal the blocklist's hash and download date with the case. |
+| C | JA3, section 13 | (1) Use the 2021 SSLBL list and state its age in every finding. (2) dpkt only, plus a one-time comparison with Wireshark on your own browser capture. (3) Accept missing split ClientHellos; no TCP reassembly. (4) Always MEDIUM. (5) Seal the blocklist's hash and download date with the case. |
 | D | Threshold tuning | Option 2: tune later, in Phase 4, then record reasons in `logic.md` and here. Known weak spots: DNS needs 19+ characters; a paced scan also trips the beacon detector; jitter evades beacons (gaps `60, 63, 57, 66, 54, 61, 59, 64, 56` give CV 0.066 and fire; gaps `42, 78, 51, 66, 45, 72, 58, 63, 84, 55` give CV 0.226 and do not). |
 | E | SSDP false positive, issue #17 | Option 2: a CIDR allowlist in config, defaulting to multicast and broadcast (`224.0.0.0/4` covers `239.255.255.250`); suppressed traffic is recorded, not silently dropped. Acceptance: `ctu-185-1` (192.168.1.2 to 239.255.255.250 every 120 s, CV 0.000) stops firing; `ctu-130-1` (6,949 connections about every 9 s, CV 0.020) still fires; a unit test shows even-timed traffic to multicast is skipped and to a normal address fires. |
 | F | Evidence wording | Option 1, in two steps. Step 1, docs only: replace "court-admissible" with "tamper-evident, designed toward admissibility" (done; handoff risk #3 closed). Step 2, core code: one fixed sentence template (what was measured, the value, the cutoff, the plain-language meaning). |

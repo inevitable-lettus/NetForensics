@@ -187,7 +187,7 @@ language, no code) → user researches + writes it → user asks for help only i
 | 12 | **Stale README status** | README listed the upload API, orchestrator, PDF and frontend as unbuilt and said 60 tests; suite is 92. | RESOLVED by this refresh PR. |
 
 - **2026-10-22** — Docs only (Toby). Human approved every recommendation in dev-notes
-  section "Open questions" (A-I); recorded as a short decisions log (section 15).
+  section "Open questions" (A-I); recorded as a short decisions log (section 14).
   Shortened `docs/dev-notes.md` from 1035 to about 565 lines, same facts and worked
   examples. Closed risk #3 (wording, step 1). Added the brevity rule to the CLAUDE.md
   Dev notes rule. No code changes.
