@@ -15,6 +15,12 @@ Every detector finding MUST carry three things:
 2. **Why it is suspicious** — plain language a magistrate can follow.
 3. **Supporting data** — the measured number(s) and the benign baseline they exceed.
 
+**Evidence sentence template (decided 2026-10-22, question F option 1).** Every
+`Finding.evidence` is built by `backend/detectors/evidence.py` in one fixed order:
+`<what was flagged>: <measured thing> <value> (cutoff: at least|at most <cutoff>,
+met|not met[; context]); … Meaning: <plain-language meaning>.` Every measurement the
+rule looks at is listed, including ones that did not cross their cutoff.
+
 No confidence scores. No "the model says malicious." If a finding cannot state its
 evidence in human terms, it does not ship (Hard Rule 1 & 2 in [`../CLAUDE.md`](../CLAUDE.md)).
 
@@ -86,9 +92,10 @@ Each is a transparent rule, not a model.
   reaches **~4.2+**. Length and query-rate thresholds **(proposed / to confirm)**.
 - **Severity:** `HIGH` only when length **and** rate both corroborate entropy;
   `MEDIUM` when just one does — **decided 2026-09-21**.
-- **Evidence string (example):** *"Subdomain `<x>` of `<parent>` has Shannon entropy
-  4.2 (benign baseline ~2.5), with 312 queries in 60s — consistent with encoded data
-  exfiltrated over DNS."*
+- **Evidence string (example):** *"DNS parent domain `<parent>`, longest subdomain `<x>`:
+  Shannon entropy 4.40 bits/char (cutoff: at least 4.2 bits/char, met; benign baseline
+  about 2.5); subdomain length 40 chars (cutoff: at least 30 chars, met); queries per 60 s
+  window 312 (cutoff: at least 50, met; …). Meaning: …"*
 
 ### 2. C2 beaconing
 - **Method:** Group connections by `(src_ip, dst_ip)` — destination port ignored, so a
@@ -118,9 +125,9 @@ Each is a transparent rule, not a model.
   the threshold deliberately to evade this exact check — this catches the common case
   honestly, not adaptive adversaries. The evidence string states exact numbers so a
   human analyst can still judge borderline cases.
-- **Evidence string (example):** *"Host `<src>` contacted `<dst>` every ~60s (±2s) over
-  45 connections (coefficient of variation 0.033, threshold 0.1) — robotic regularity
-  characteristic of C2 beaconing, not human traffic."*
+- **Evidence string (example):** *"Host `<src>` to `<dst>`: connections 45 (cutoff: at least
+  10, met); coefficient of variation of the gaps 0.033 (cutoff: at most 0.1, met; mean gap
+  60.0 s, spread ±2.0 s). Meaning: …"*
 
 ### 3. Port scan / reconnaissance
 - **Method:** Fan-out analysis — one source touching many ports/hosts within a time
@@ -129,8 +136,9 @@ Each is a transparent rule, not a model.
   directly countable recon signal.
 - **Threshold / baseline:** Distinct ports/hosts contacted by one source in a window
   exceeds a cutoff **(proposed / to confirm)**.
-- **Evidence string (example):** *"Source `<src>` contacted 850 distinct ports across 12
-  hosts in 8s — fan-out consistent with a port scan."*
+- **Evidence string (example):** *"Source `<src>`, busiest 10 s window: distinct destination
+  ports 850 (cutoff: at least 100, met); distinct destination hosts 12 (cutoff: at least 10,
+  met). Meaning: …"*
 
 ### 4. JA3 fingerprinting
 - **Method:** Compute the **JA3** fingerprint of the TLS handshake; match against the

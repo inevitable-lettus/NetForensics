@@ -28,9 +28,9 @@ the piece this project is built around.
 
 | Detector | Signal | Example evidence |
 |---|---|---|
-| **DNS exfiltration** | Shannon entropy of subdomains + length + query rate to one parent domain | *"Subdomain `a8f3...` of `evil.com` has entropy 4.2 (benign baseline ~2.5), 312 queries in 60s"* |
-| **C2 beaconing** | Coefficient of variation of inter-arrival times between a host pair | *"Host X contacted Y every ~60s (±2s) over 45 connections, CV 0.033 — robotic regularity"* |
-| **Port scan / recon** | Distinct ports/hosts one source touches within a sliding time window | *"Source X reached 850 distinct ports and 12 distinct hosts within a 10s window"* |
+| **DNS exfiltration** | Shannon entropy of subdomains + length + query rate to one parent domain | *"…longest subdomain `a8f3…`: Shannon entropy 4.40 bits/char (cutoff: at least 4.2, met; benign baseline about 2.5); …"* |
+| **C2 beaconing** | Coefficient of variation of inter-arrival times between a host pair | *"Host X to Y: connections 45 (cutoff: at least 10, met); coefficient of variation of the gaps 0.033 (cutoff: at most 0.1, met; …)"* |
+| **Port scan / recon** | Distinct ports/hosts one source touches within a sliding time window | *"Source X, busiest 10 s window: distinct destination ports 850 (cutoff: at least 100, met); distinct destination hosts 12 (cutoff: at least 10, met)…"* |
 | **JA3 fingerprinting** *(planned)* | TLS handshake fingerprint matched against the abuse.ch SSLBL malware blocklist | *"TLS client from X has JA3 `hash`, matching SSLBL entry for family Y"* |
 
 Every finding carries **what** was flagged, **why** it's suspicious in plain

@@ -11,6 +11,7 @@ from collections.abc import Sequence
 
 from backend.config import DnsExfilConfig
 from backend.detectors.base import Detector
+from backend.detectors.evidence import Cutoff, Measurement, evidence_sentence
 from backend.models import DnsFeatures, Finding, Flow, Severity
 
 
@@ -76,12 +77,20 @@ class DnsExfilDetector(Detector):
         self, dns: DnsFeatures, rate: float, severity: Severity, cfg: DnsExfilConfig
     ) -> Finding:
         longest = _longest_subdomain(dns)
-        evidence = (
-            f"Subdomain {longest!r} of {dns.parent_domain!r} has Shannon entropy "
-            f"{dns.max_subdomain_entropy:.2f} (benign baseline ~{cfg.benign_entropy_baseline}), "
-            f"length {dns.max_subdomain_length} chars, with {dns.query_count} queries "
-            f"in {cfg.query_rate_window_secs}s (~{rate:.0f}/window) — consistent with data "
-            f"encoded into DNS queries."
+        evidence = evidence_sentence(
+            f"DNS parent domain {dns.parent_domain!r}, longest subdomain {longest!r}",
+            [
+                Measurement("Shannon entropy", dns.max_subdomain_entropy, cfg.entropy_threshold,
+                            Cutoff.AT_LEAST, "bits/char", 2,
+                            f"benign baseline about {cfg.benign_entropy_baseline:g}"),
+                Measurement("subdomain length", dns.max_subdomain_length,
+                            cfg.subdomain_length_threshold, Cutoff.AT_LEAST, "chars"),
+                Measurement(f"queries per {cfg.query_rate_window_secs} s window", rate,
+                            cfg.query_rate_threshold, Cutoff.AT_LEAST,
+                            context=f"{dns.query_count} queries in total"),
+            ],
+            "the subdomains look random, and are long or frequent, as when data is "
+            "smuggled out encoded in DNS queries",
         )
         return Finding(
             detector=self.name,

@@ -13,6 +13,7 @@ from collections.abc import Sequence
 
 from backend.config import PortScanConfig
 from backend.detectors.base import Detector
+from backend.detectors.evidence import Cutoff, Measurement, evidence_sentence
 from backend.models import Finding, Flow, Severity
 
 
@@ -93,12 +94,16 @@ class PortScanDetector(Detector):
         severity: Severity,
         cfg: PortScanConfig,
     ) -> Finding:
-        evidence = (
-            f"Source {src_ip} reached {max_ports} distinct destination ports "
-            f"(threshold {cfg.distinct_ports_threshold}) and {max_hosts} distinct "
-            f"destination hosts (threshold {cfg.distinct_hosts_threshold}) within a "
-            f"{cfg.window_secs}s window — fan-out consistent with port-scan "
-            f"reconnaissance."
+        evidence = evidence_sentence(
+            f"Source {src_ip}, busiest {cfg.window_secs} s window",
+            [
+                Measurement("distinct destination ports", max_ports,
+                            cfg.distinct_ports_threshold, Cutoff.AT_LEAST),
+                Measurement("distinct destination hosts", max_hosts,
+                            cfg.distinct_hosts_threshold, Cutoff.AT_LEAST),
+            ],
+            "one source tried far more ports or machines in a few seconds than normal "
+            "use does, as a port scan (probing for open services) does",
         )
         return Finding(
             detector=self.name,
