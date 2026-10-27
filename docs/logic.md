@@ -59,10 +59,10 @@ This is the real product. Make tamper-evidence *genuine*, not cosmetic.
 > evidence-integrity layer.
 
 ### Honest framing
-Prefer "evidentiary integrity / tamper-evident chain of custody **designed toward**
-admissibility standards" over a flat "court-admissible" claim — you can prove
-tamper-evidence live; you cannot certify legal admissibility in a weekend. See open risk
-in [`handoff.md`](handoff.md).
+Say "tamper-evident, designed toward admissibility", never a flat claim that the output
+is court-admissible — you can prove tamper-evidence live; you cannot certify legal
+admissibility in a weekend. Closed as handoff risk #3 (2026-10-22); see
+[`handoff.md`](handoff.md).
 
 ---
 
