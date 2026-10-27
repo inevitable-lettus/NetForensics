@@ -16,6 +16,7 @@ from backend.db.evidence_store import StoredEvidenceCorruptError
 from backend.db.interfaces import CaseNotFoundError, CaseRepository
 from backend.db.serialization import to_jsonable
 from backend.db.storage import Storage
+from backend.evidence.timestamp import make_timestamper
 from backend.evidence.tsa_client import Timestamper
 from backend.ingest.pcap_validation import InvalidCaptureError
 from backend.intake import seal_and_store, stage_and_validate
@@ -28,8 +29,9 @@ def create_app(
     config: Config = CONFIG,
     timestamper: Timestamper | None = None,
 ) -> FastAPI:
-    """`timestamper` is the core RFC 3161 hook (#11). Until it exists — or when the
-    TSA is unreachable — cases are stored with a PENDING seal and retried later."""
+    """`timestamper` is the RFC 3161 hook (`timestamp.make_timestamper`, #11); the
+    module-level `app` wires the real one. Without one, or when the TSA is
+    unreachable, cases are stored with a PENDING seal and retried later."""
     storage = storage or Storage.open(config.evidence)
     router = APIRouter(prefix="/api")
 
@@ -78,4 +80,4 @@ def _load_or_404(cases: CaseRepository, case_id: str) -> CaseRecord:
         raise HTTPException(status_code=404, detail="Case not found.") from error
 
 
-app = create_app()
+app = create_app(timestamper=make_timestamper(CONFIG))

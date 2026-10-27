@@ -28,6 +28,12 @@ This is the real product. Make tamper-evidence *genuine*, not cosmetic.
 - **Hash** the entire `.pcap` with **BLAKE3** on ingest.
 - Record the hash together with an **RFC 3161 trusted timestamp** from a Timestamp
   Authority, plus the received-at time.
+- A TSA reply is stored only if it is granted, signed by the **pinned** TSA certificate
+  (not merely one chaining to its CA: the client library trusts certificates embedded
+  in the reply), valid at its genTime, marked for time stamping, covers SHA-256 of
+  exactly the sealed hash, and echoes our nonce. Bad replies are refused, not stored;
+  non-granted statuses are retried. The whole DER reply is stored, so
+  `openssl ts -verify` can re-check it.
 - This establishes the foundational evidentiary fact: *"this is the exact evidence,
   unaltered, as received at this time."* — the digital equivalent of sealing and signing
   an evidence bag.
