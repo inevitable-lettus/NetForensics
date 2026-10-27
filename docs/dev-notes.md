@@ -311,7 +311,6 @@ guess to tune on real captures; only the entropy values came from the original p
 | Setting | Value | What it means |
 |---|---|---|
 | `benign_entropy_baseline` | 2.5 | Typical entropy of normal subdomains; shown in evidence, not used to decide. |
-| `beacon_dst_cidrs` allowlist | `224.0.0.0/4`, `255.255.255.255/32` | Address ranges (CIDR) skipped by the beacon detector: multicast and broadcast discovery traffic. |
 | `entropy_threshold` | 4.2 | DNS entropy required before a finding; needs 19+ characters to be reachable. |
 | `subdomain_length_threshold` | 30 (proposed) | Longest subdomain of at least 30 characters is a supporting signal. |
 | `query_rate_threshold` / `query_rate_window_secs` | 50 (proposed) / 60 | At least 50 queries per window to one parent domain is a supporting signal. |
@@ -320,6 +319,7 @@ guess to tune on real captures; only the entropy values came from the original p
 | `distinct_ports_threshold` / `distinct_hosts_threshold` / `window_secs` | 100 / 10 / 10 (proposed) | Port-scan: distinct ports or hosts within the window. |
 | `dns_parent_domains` allowlist | `cloudfront.net`, `akamaihd.net`, `googleusercontent.com`, `amazonaws.com` | Skipped by the DNS detector; they legitimately look random. |
 | `beacon_dst_ips` allowlist | empty | Destination IPs skipped by the beacon detector. |
+| `beacon_dst_cidrs` allowlist | `224.0.0.0/4`, `255.255.255.255/32` | Address ranges (CIDR) skipped by the beacon detector: multicast and broadcast discovery traffic. |
 | `max_upload_bytes` | 512 MiB (proposed) | Larger uploads are rejected. |
 | `upload_chunk_bytes` / `hash_chunk_bytes` | 1 MiB | Streaming size; keeps memory flat. |
 | `hash_algorithm` | blake3 | Primary seal hash. |
