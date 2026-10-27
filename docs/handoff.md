@@ -94,7 +94,8 @@ a teaching explanation, human review before merge; plumbing is written directly.
       `CustodyEntry.case_id`, `CheckResult`/`VerificationReport`).
 - [x] Step 2 `[CORE]` streaming dual-hash seal (BLAKE3 + SHA-256, one pass) —
       `hash_file` → `FileDigests` (shared with verify), `seal_pcap` → PENDING seal.
-- [ ] Step 3 `[CORE]` hash-chained custody (`backend/evidence/custody.py`).
+- [x] Step 3 `[CORE]` hash-chained custody (`backend/evidence/custody.py`, issue #10) —
+      built directly by Jim per the 2026-10-20 human decision; awaiting human review.
 - [ ] Step 4 `[CORE]` RFC 3161 timestamp request/verify (`timestamp.py`).
 - [ ] Step 5 `[CORE]` case verification + chain-head anchoring (`verify.py`).
 - [x] Step 6 SQLite append-only store + content-addressed evidence store
@@ -172,7 +173,7 @@ language, no code) → user researches + writes it → user asks for help only i
 | 2 | **Curate sample pcaps so all 4 detectors fire** | A walkthrough where TLS/SSLBL shows zero hits is weak. Hand-pick captures from malware-traffic-analysis.net per detector. | OPEN |
 | 3 | **"Court-admissible" wording** | Overclaiming invites a brutal "prove it" question. Reframe toward "evidentiary integrity / tamper-evident, designed toward admissibility." Prove tamper-evidence live instead. | OPEN |
 | 4 | **tshark on the dev machine** | PyShark needs tshark installed; verify on the actual machine. Keep dpkt path independent. | OPEN. Verified 2026-10-20: tshark MISSING on this Mac (`which tshark` empty); pyshark is pip-installed in `.venv`. No code under `backend/` or `tests/` imports pyshark, so all 92 tests pass without tshark; only `scripts/check_deps.py` warns. The PyShark path is not built yet (Phase 2 TLS/JA3 work), so tshark becomes a hard need only when JA3 parsing lands. `brew install wireshark` then. |
-| 5 | **Custody-log tamper-evidence mechanism** | Decide hash-chained entries (each references prior). Must be genuine, not cosmetic. | DECIDED in `logic.md` (hash-chained), not built. Phase 3 step 3. |
+| 5 | **Custody-log tamper-evidence mechanism** | Decide hash-chained entries (each references prior). Must be genuine, not cosmetic. | BUILT (#10): SHA-256 hash chain, genesis bound to the seal; tail truncation left to anchoring (#12). |
 | 6 | **Entropy threshold vs subdomain length** | Shannon entropy per character is capped at log2(length), so `entropy_threshold` 4.2 can only fire on subdomains of 19+ characters. Short encoded labels never reach it. | OPEN: tune against real captures (core/pairing). |
 | 7 | **Detector threshold values untuned** | `subdomain_length` 30, `query_rate` 50 per 60s, C2 `min_connections` 10 and max CV 0.1, port-scan 100 ports / 10 hosts / 10s are all marked PROPOSED in `backend/config.py`. Only the 2.5 / 4.2 entropy baselines come from the source proposal. | OPEN: tune in Phase 4 (core/pairing). |
 | 8 | **Cross-detector overlap** | A perfectly paced synthetic scan has near-zero CV and also trips the C2 beacon detector. Real behaviour of the rule, but it can confuse demo pcaps. | OPEN: weigh when curating sample pcaps. |
@@ -181,6 +182,14 @@ language, no code) → user researches + writes it → user asks for help only i
 | 11 | **Interim JSON case store** | `CaseStore` keeps one JSON file per case until the SQLite append-only store (Phase 3 step 6); no tamper-evidence there yet. | RESOLVED by step 6 (PR #13): SQLite append-only tables + triggers; tamper-evidence itself comes from the custody chain (#10) + anchoring (#12). |
 | 12 | **Stale README status** | README listed the upload API, orchestrator, PDF and frontend as unbuilt and said 60 tests; suite is 92. | RESOLVED by this refresh PR. |
 
+- **2026-10-20 (cont.)** — **Issue #10 custody hash chain (core, PR #19)**: `custody.py` —
+  `canonical_json`, `utc_text`, `genesis_prev_hash`, `compute_entry_hash`, `build_entry`
+  (clock injected, `CustodyEvent` input), `find_chain_break` → first broken index +
+  reason, `verify_chain` → `CheckResult`. Golden vectors reproducible with `printf | shasum`.
+  Decisions: SHA-256 (chain head usable as an RFC 3161 imprint); algorithm and domain
+  tags pinned in code (not config), payload depth cap 32, floats/tuples/bytes refused,
+  no Unicode normalisation, empty log = break, seal timestamp fields excluded from
+  genesis. Not wired into the API yet (small follow-up on the SQLite store).
 - **2026-10-20 (cont.)** — **Issue #3 TSA transport + retry (plumbing, PR #14)**:
   `backend/evidence/tsa_client.py` — `request_timestamp` (POST DER query, typed
   `TsaUnavailableError` on timeout/DNS/refused/non-200/empty body, no retries),
