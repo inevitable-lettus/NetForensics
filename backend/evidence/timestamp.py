@@ -91,6 +91,11 @@ def load_trust(config: Config) -> TsaTrust:
     so a wrong file fails at start-up rather than as a confusing per-token error."""
     tsa = _load_certificate(config.evidence.tsa_cert_path)
     ca = _load_certificate(config.evidence.tsa_ca_path)
+    if tsa == ca:  # a self-signed certificate would pass the issuer check against itself
+        raise TimestampInvalidError(
+            f"{config.evidence.tsa_cert_path} and {config.evidence.tsa_ca_path} are the same "
+            "certificate; the TSA certificate must be issued by a separate CA"
+        )
     try:
         tsa.verify_directly_issued_by(ca)
     except (ValueError, TypeError) as error:

@@ -161,10 +161,20 @@ def test_garbage_or_rejected_reply_is_refused(trust, reply):
 
 
 def test_trust_refuses_a_tsa_certificate_the_ca_did_not_issue():
+    # Swapped files: the TSA certificate did not issue the CA root.
     wrong = replace(CONFIG, evidence=replace(
-        CONFIG.evidence, tsa_ca_path=CONFIG.evidence.tsa_cert_path))
+        CONFIG.evidence, tsa_cert_path=CONFIG.evidence.tsa_ca_path,
+        tsa_ca_path=CONFIG.evidence.tsa_cert_path))
     with pytest.raises(TimestampInvalidError, match="was not issued by"):
         load_trust(wrong)
+
+
+def test_trust_refuses_the_same_certificate_as_tsa_and_ca():
+    # The self-signed CA root passes "issued by" against itself, so check it first.
+    same = replace(CONFIG, evidence=replace(
+        CONFIG.evidence, tsa_cert_path=CONFIG.evidence.tsa_ca_path))
+    with pytest.raises(TimestampInvalidError, match="same certificate"):
+        load_trust(same)
 
 
 def test_pinned_certificates_are_the_freetsa_ones(trust):
