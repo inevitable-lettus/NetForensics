@@ -6,6 +6,7 @@ from pathlib import Path
 import dpkt
 
 from backend.parse.dns_parser import (
+    _query_names,
     _build_dns_flow,
     _group_dns_queries,
     _iter_dns_queries,
@@ -157,3 +158,31 @@ def test_parse_dns_flows_end_to_end(tmp_pcap: Path):
     evil_flow = next(f for f in flows if f.features.dns.parent_domain == "evil.com")
     assert evil_flow.src_ip == "10.0.0.5"
     assert evil_flow.features.dns.query_count == 2
+
+
+def _non_utf8_query_packet(src_ip: str = "10.0.0.5") -> bytes:
+    """dpkt cannot build a non-UTF-8 name, so craft the frame with a placeholder byte
+    and swap in 0xE4 (Latin-1 'ä') — the byte that crashed the iodine capture."""
+    frame = _dns_query_packet("jXgermeister.t1.evil.com", src_ip=src_ip)
+    assert frame.count(b"X") == 1
+    return frame.replace(b"X", b"\xe4")
+
+
+def test_query_names_keeps_non_utf8_label_with_escape():
+    frame = _non_utf8_query_packet()
+    payload = dpkt.ethernet.Ethernet(frame).data.data.data
+    assert _query_names(payload) == ["j\\xe4germeister.t1.evil.com"]
+
+
+def test_query_names_ignores_payload_that_is_not_dns():
+    assert _query_names(b"\x00\x01") == []
+
+
+def test_parse_dns_flows_survives_non_utf8_label(tmp_pcap: Path):
+    write_minimal_pcap(
+        tmp_pcap, [_non_utf8_query_packet(), _dns_query_packet("a8f3.evil.com")]
+    )
+    (flow,) = parse_dns_flows(str(tmp_pcap))
+    assert flow.features.dns.parent_domain == "evil.com"
+    assert flow.features.dns.query_count == 2
+    assert "j\\xe4germeister.t1" in flow.features.dns.subdomains

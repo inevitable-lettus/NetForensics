@@ -27,7 +27,7 @@ arithmetic shown in the text), not estimated.
 10. [Custody hash chain](#10-custody-hash-chain)
 11. [The command-line tool](#11-the-command-line-tool)
 12. [Not built yet](#12-not-built-yet)
-13. [JA3 fingerprinting (proposed)](#13-ja3-fingerprinting-proposed)
+13. [JA3 fingerprinting (approved design, not built)](#13-ja3-fingerprinting-approved-design-not-built)
 14. [Open questions for Garv](#14-open-questions-for-garv)
 
 ## Words used throughout
@@ -220,6 +220,17 @@ queries." The same numbers are stored next to their thresholds.
 - UDP port 53 only; DNS over TCP and DNS-over-HTTPS are out of scope.
 - A DNS tunnel that sends few, short queries stays under every limit.
 - A CDN not on the allowlist can false-alarm; the human reviews every finding.
+
+**Names with non-text bytes (fix for #16).** A DNS label can hold any byte, but the `dpkt`
+library only accepts valid UTF-8 text and used to crash the whole run on a bad byte. Now
+`_questions_lossless` re-reads the name by hand and writes each bad byte as `\xNN`
+(`0xE4` becomes `\xe4`), so the label stays visible to the detector.
+*Example:* the 4 bytes `E4 E5 E6 E7` become the 16 characters `\xe4\xe5\xe6\xe7`; entropy
+of the escaped text is 2.5 (counts 4, 4, 4, 1, 1, 1, 1 of 16).
+*Limit:* escaping makes names look longer and **less random** than they are. In
+`dns-iodine.pcap` the longest label is 55 raw bytes but 193 characters, with entropy 3.43
+escaped versus 5.74 per raw byte. So this can only cause a miss, never a false alarm.
+Measuring raw bytes instead is tracked in issue #32.
 
 ---
 
@@ -650,44 +661,29 @@ lands (standing rule).
   walk the chain. The 10-second flip-one-byte demonstration.
   The CLI lists `verify` and `tamper-demo` already (section 11).
 - **JA3 fingerprinting (4th detector):** matches TLS handshake fingerprints to a known
-  malware list. Deliberately deferred; proposal in section 13.
+  malware list. Deliberately deferred; approved design in section 13.
 
 ---
 
-## 13. JA3 fingerprinting (proposed)
+## 13. JA3 fingerprinting (approved design, not built)
 
-_Status: concept draft for human approval. No JA3 code exists yet. Written 2026-10-20._
+_Human approved the design on 2026-10-22. Built one function at a time, each reviewed
+before the next. No JA3 code exists yet._
 
-### What it does
-JA3 gives every program that opens a TLS connection a short ID (32 hex characters), built from how the program *introduces itself* to a server. If that ID is on a list of IDs seen in malware, we raise a finding. We never decrypt anything and never read page content.
+**What it does.** Gives each program that opens a TLS (HTTPS encryption) connection a short
+ID and flags IDs found on a malware list. Nothing is decrypted.
 
-### First, the background
+**Key concept.** A TLS connection starts with a plain-text *ClientHello* listing what the
+program supports: version, encryption recipes (*cipher suites*), optional features
+(*extensions*), *curves* and *point formats*. That list comes from the program's TLS
+library, so it works like handwriting. JA3 joins the five fields as decimal numbers in wire
+order (`-` inside a field, `,` between fields) and takes the MD5 (text in, fixed 32-hex-digit
+label out). *GREASE* values (`0x0a0a`, `0x1a1a` ... `0xfafa`) are random fillers that
+modern clients vary per connection, so they are dropped first.
 
-- **TLS** is the encryption used by HTTPS. Before any private data flows, the two sides do a **handshake** (an opening exchange where they agree on how to encrypt).
-- The first message is the **ClientHello**, sent by the client (the program making the connection). It says, in plain text (not encrypted), "here is what I support": which TLS versions, which encryption recipes, which optional features. The server's reply picks from this menu.
-- A **cipher suite** is one such encryption recipe, identified by a number. A client sends its whole list, in its own order of preference.
-- An **extension** is an optional feature the client announces, also a number (for example `0` = "I want the site called example.com", the server name, SNI).
-- **Curves** (elliptic curves) are the maths families the client can use for key exchange; **point formats** is a tiny setting for how curve data is written.
+**Worked example.**
 
-Because the ClientHello is plain text, a passive capture contains it. That is why this works on a pcap.
-
-### Why a fingerprint identifies a program
-The menu in a ClientHello is not chosen by the user. It is baked in by the TLS library and settings of the program: Chrome, Firefox, Python `requests`, a given malware family each send a different menu, in a different order. The same program sends the same menu to every server. So the menu is like a handwriting sample: it says which *program* is talking, not which *person* or which *website*. Malware built from one codebase shares one menu, so one fingerprint covers all its infections.
-
-### How JA3 is computed (5 fields)
-Take these five values from the ClientHello, as decimal numbers, **in the order they appear on the wire**:
-
-1. **TLS version** (the ClientHello's own version field; 771 = TLS 1.2, even for TLS 1.3 clients, which hide the real version in an extension)
-2. **Cipher suites** list
-3. **Extensions** list (just the numbers, not their contents)
-4. **Curves** (the "supported groups" extension, number 10)
-5. **Point formats** (extension 11)
-
-Join numbers inside a field with `-`, join the five fields with `,`, then take the **MD5** of that text. (MD5 is a hash: a function that turns any text into a fixed 32-hex-character summary; same text always gives the same summary, any change gives a completely different one. We use it here only as a short label, not for security, so MD5's known weaknesses do not matter for this use.)
-
-**Worked example** (small made-up client, real arithmetic):
-
-| Field | Raw values on the wire | After dropping GREASE |
+| Field | On the wire | After dropping GREASE |
 |---|---|---|
 | Version | 771 | 771 |
 | Ciphers | 2570, 4865, 4866, 49195 | 4865-4866-49195 |
@@ -695,56 +691,19 @@ Join numbers inside a field with `-`, join the five fields with `,`, then take t
 | Curves | 6682, 29, 23, 24 | 29-23-24 |
 | Point formats | 0 | 0 |
 
-JA3 string: `771,4865-4866-49195,0-23-65281-10-11,29-23-24,0`
-MD5 of that string: `d513a2c384da97e772fef72dfe6d8276` (computed with Python `hashlib`). Change one number (say 24 to 25) and the hash is completely different.
+String `771,4865-4866-49195,0-23-65281-10-11,29-23-24,0` has MD5
+`d513a2c384da97e772fef72dfe6d8276` (computed with Python `hashlib`).
 
-### GREASE: why some values must be dropped
-**GREASE** (RFC 8701) is a trick modern clients use on purpose: they insert made-up, meaningless numbers into the lists (always of the form `0x0a0a`, `0x1a1a`, ... `0xfafa`: 16 values, both bytes equal, low nibble `a`) and pick a *different* one each connection. The aim is to stop servers from breaking on unknown values. Above, 2570 (`0x0a0a`) and 6682 (`0x1a1a`) are GREASE. If we kept them, the same Chrome would give a different hash on every connection. So the JA3 rule is: **remove every GREASE value from ciphers, extensions and curves before building the string.** Getting this wrong is the most common JA3 bug, so we test it directly.
+**Decisions (2026-10-22).** Parse with `dpkt`, no `tshark`. Match against the abuse.ch
+SSLBL list as a local file; the detector never uses the network. Severity always `MEDIUM`;
+the evidence states the list's age, and the evidence layer records its hash and download date.
 
-### Matching against abuse.ch SSLBL
-**SSLBL** is a free blocklist from abuse.ch listing JA3 hashes seen in malware (CSV: `https://sslbl.abuse.ch/blacklist/ja3_fingerprints.csv`). Match rule: our hash equals a listed hash (exact, yes/no). Evidence: the hash, the JA3 string, the listing reason (malware family), and the SNI if present.
-
-Checked 2026-10-20:
-- The CSV header says "Last updated: 2021-08-03", it has fewer than 100 rows, and its newest "last seen" date is 2021-08-11. **The list is about five years old.** It will miss malware families from 2022 onwards.
-- The SSLBL website itself warns the fingerprints "have not been tested against known good traffic yet and may cause a significant amount of FPs" (false positives = harmless traffic wrongly flagged). Malware that uses the operating system's TLS library shares a fingerprint with ordinary programs.
-- I did not check whether abuse.ch plans to retire the service.
-
-So a match is a **lead for a human, not proof**. The finding text must say so.
-
-### Known limits
-- **Collisions:** two different programs can share a JA3 (same library, same settings). A match says "looks like", not "is".
-- **Randomised order:** Chrome (since about 2023) shuffles extension order each connection, so Chrome has no stable JA3. Harmless for a *malware* list (malware rarely randomises), but JA3 is useless for identifying browsers.
-- **Evasion:** a malware author can copy a browser's ClientHello.
-- **JA4** is the newer successor: it sorts the extensions before hashing, so shuffling no longer matters, and it is readable. Natural upgrade path; not in scope.
-- **Not visible to JA3:** QUIC/HTTP3 (ClientHello is inside encrypted packets), anything not on TCP, and ClientHellos split across several TCP packets if we do not reassemble (our scope rule excludes TCP reassembly). Newer browsers with large post-quantum key shares make a split more likely; for malware, rare.
-
-### What do we need to install?
-| | Parse with `dpkt` (already a dependency) | Use `tshark` (Wireshark's engine) |
-|---|---|---|
-| Install | nothing | `brew install wireshark` (missing on this Mac; the PyShark path is not built) |
-| Who computes JA3 | our own code (~60-80 lines: read TLS record, read ClientHello, drop GREASE, join, MD5) | Wireshark, via a JA3 field (field names not verified here: tshark is not installed) |
-| Explainability | every step is ours and shown in the evidence | black box call; "same engine as Wireshark" is a good courtroom line, though |
-| Split ClientHello | missed (no reassembly) | handled |
-| Speed / robustness | one pass in-process | a subprocess per file, depends on Wireshark version |
-| Testable offline | yes | needs the install in CI |
-
-I confirmed on this machine that `dpkt` 1.9.8 parses a ClientHello and returns cipher suites and extensions in wire order, and it even labels GREASE ciphers. Extensions come back as numbers with raw data, which is all JA3 needs.
-
-### Testing with no licence-clear sample
-No small public capture with a known SSLBL hit has a clear licence. Plan:
-1. **Generate our own** ClientHello bytes in a test (like the synthetic pcaps in `scripts/make_synthetic_pcaps.py`), including GREASE values, and check our function's output against the hash computed independently by `hashlib` from a string written out by hand (the table above is exactly such a test).
-2. Put a self-made hash in a **test blocklist file**, to prove the match path and the evidence text. This proves the code, not that the list catches real malware, and the docs must say so.
-3. **One-time cross-check** (optional): if the human is willing to install Wireshark, compare our hash with Wireshark's on one real capture of our own browser traffic.
-
-### Recommended design
-- Parse the ClientHello with `dpkt` plus a small amount of our own code. No tshark. Core logic, so pairing mode: explain, write, review one function at a time (drop-GREASE, build-string, hash, match).
-- Fill the existing `TlsFeatures(ja3, ja3_string, server_name)`, one flow per TCP connection, from the first ClientHello only.
-- Blocklist: a local copy of the SSLBL CSV loaded from the path already in config (`sslbl_cache_path`), fetched by a separate small script with a pinned hash; the detector itself does no network.
-- Severity: always MEDIUM (one signal, and the source warns about false positives); evidence names the list's age.
-- One detector module, one finding per (client IP, JA3), the same interface as the other three.
-
-### Open questions
-The five decisions this feature needs are in section 14, question C.
+**Limits.**
+- The SSLBL JA3 list was last updated 2021-08-03 (under 100 entries) and its own site warns
+  of false alarms. A match is a lead, not proof.
+- Programs can share an ID; malware can copy a browser's. Chrome shuffles extension order
+  (since about 2023); JA4, which sorts them, is the successor, not in scope.
+- ClientHellos split over several TCP packets are missed (no TCP reassembly); QUIC is invisible.
 
 ---
 
