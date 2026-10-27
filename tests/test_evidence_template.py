@@ -3,12 +3,15 @@ sentences are asserted word for word: they are what a reviewer reads."""
 
 from __future__ import annotations
 
+import dataclasses
+from datetime import timedelta
+
 import pytest
 
 from backend.config import CONFIG
 from backend.detectors.c2_beacon import C2BeaconDetector
 from backend.detectors.dns_exfil import DnsExfilDetector
-from backend.detectors.evidence import Cutoff, Measurement, evidence_sentence
+from backend.detectors.evidence import Cutoff, Measurement, evidence_sentence, plain_number
 from backend.detectors.port_scan import PortScanDetector
 from tests.fixtures.pcap_builder import dns_flow
 from tests.test_c2_beacon import _flow as beacon_flow
@@ -18,20 +21,36 @@ from tests.test_port_scan import _flow as scan_flow
 def test_template_order_is_subject_measurements_meaning():
     sentence = evidence_sentence(
         "Thing X",
-        [Measurement("speed", 12.345, 10, Cutoff.AT_LEAST, "m/s", 1, "limit sign 10"),
-         Measurement("wobble", 0.5, 0.1, Cutoff.AT_MOST)],
+        [Measurement("speed", 12.345, 10, Cutoff.AT_LEAST, True, "m/s", 1, "limit sign 10"),
+         Measurement("wobble", 0.5, 0.1, Cutoff.AT_MOST, False)],
         "it is going too fast.",
     )
     assert sentence == ("Thing X: speed 12.3 m/s (cutoff: at least 10 m/s, met; limit sign 10); "
                         "wobble 0 (cutoff: at most 0.1, not met). Meaning: it is going too fast.")
 
 
-@pytest.mark.parametrize(("value", "direction", "met"), [
-    (10, Cutoff.AT_LEAST, True), (9.99, Cutoff.AT_LEAST, False),
-    (10, Cutoff.AT_MOST, True), (10.01, Cutoff.AT_MOST, False),
+@pytest.mark.parametrize(("value", "cutoff", "decimals", "shown"), [
+    (49.587, 50, 0, "49.6"),            # 50 queries over 60.5 s: must not print "50"
+    (49.5, 50, 0, "49.5"),
+    (50.0, 50, 0, "50"),                # exactly at the cutoff stays as is
+    (0.1 + 0.2, 0.3, 3, "0.30000000000000004"),  # unequal past 6 decimals: full value
+    (12.345, 10, 1, "12.3"),            # far from the cutoff: normal rounding
 ])
-def test_cutoff_is_inclusive_like_the_detectors(value, direction, met):
-    assert Measurement("x", value, 10, direction).met is met
+def test_printed_value_never_equals_an_unequal_cutoff(value, cutoff, decimals, shown):
+    text = Measurement("x", value, cutoff, Cutoff.AT_LEAST, value >= cutoff,
+                       decimals=decimals).render()
+    assert text.startswith(f"x {shown} (cutoff: at least ")
+
+
+def test_verdict_is_the_detectors_decision():
+    assert "not met" in Measurement("x", 10, 10, Cutoff.AT_LEAST, False).render()
+    assert ", met" in Measurement("x", 0, 10, Cutoff.AT_LEAST, True).render()
+
+
+def test_cutoffs_print_as_typed_never_in_exponent_form():
+    assert plain_number(2_000_000) == "2000000"
+    assert plain_number(0.1) == "0.1"
+    assert plain_number(4.2) == "4.2"
 
 
 def test_evidence_needs_a_measurement():
@@ -46,8 +65,9 @@ def test_dns_sentence():
         "DNS parent domain 'evil.example.com', longest subdomain "
         "'a8f3k2j9d0s7f6g5h4j3k2l1m0n9b8v7c6x5z4': Shannon entropy 4.60 bits/char "
         "(cutoff: at least 4.2 bits/char, met; benign baseline about 2.5); subdomain length "
-        "38 chars (cutoff: at least 30 chars, met); queries per 60 s window 18000 (cutoff: at "
-        "least 50, met; 300 queries in total). Meaning: the subdomains look random, and are "
+        "38 chars (cutoff: at least 30 chars, met); query rate 18000.0 queries per 60 s "
+        "(cutoff: at least 50 queries per 60 s, met; scaled to a 60 s window from 300 queries "
+        "in total). Meaning: the subdomains look random, and are "
         "long or frequent, as when data is smuggled out encoded in DNS queries."
     )
 
@@ -70,6 +90,23 @@ def test_port_scan_sentence_shows_which_axis_fired():
     assert finding.evidence == (
         "Source 10.0.0.5, busiest 10 s window: distinct destination ports 105 (cutoff: at "
         "least 100, met); distinct destination hosts 1 (cutoff: at least 10, not met). "
-        "Meaning: one source tried far more ports or machines in a few seconds than normal "
-        "use does, as a port scan (probing for open services) does."
+        "Meaning: one source tried at least the cutoff number of ports or machines within a "
+        "few seconds, more than normal use does, as a port scan (probing for open services) "
+        "does."
     )
+
+
+
+@pytest.mark.parametrize(("queries", "seconds", "expected"), [
+    (50, 60.5, "query rate 49.6 queries per 60 s (cutoff: at least 50 queries per 60 s, "
+               "not met; scaled to a 60 s window from 50 queries in total)"),
+    (1, 0, "query rate 1.0 queries per 60 s (cutoff: at least 50 queries per 60 s, not met; "
+           "scaled to a 60 s window from 1 query in total)"),
+])
+def test_dns_rate_wording_near_the_cutoff(queries, seconds, expected):
+    # Pam's QA cases: a rate just under 50 must not print as "50", and one query is
+    # "1 query". The long subdomain carries the finding.
+    flow = dns_flow("evil.example.com", ["a8f3k2j9d0s7f6g5h4j3k2l1m0n9b8v7c6x5z4"], 4.6, queries)
+    flow = dataclasses.replace(flow, end_time=flow.start_time + timedelta(seconds=seconds))
+    (finding,) = DnsExfilDetector(CONFIG).run([flow])
+    assert expected in finding.evidence

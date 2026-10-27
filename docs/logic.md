@@ -19,7 +19,10 @@ Every detector finding MUST carry three things:
 `Finding.evidence` is built by `backend/detectors/evidence.py` in one fixed order:
 `<what was flagged>: <measured thing> <value> (cutoff: at least|at most <cutoff>,
 met|not met[; context]); … Meaning: <plain-language meaning>.` Every measurement the
-rule looks at is listed, including ones that did not cross their cutoff.
+rule looks at is listed, including ones that did not cross their cutoff. "Met" is the
+detector's own decision (passed in, not re-computed), and a value that would round onto
+a cutoff it did not equal is printed with more decimals, so number and verdict never
+disagree.
 
 No confidence scores. No "the model says malicious." If a finding cannot state its
 evidence in human terms, it does not ship (Hard Rule 1 & 2 in [`../CLAUDE.md`](../CLAUDE.md)).
@@ -94,8 +97,9 @@ Each is a transparent rule, not a model.
   `MEDIUM` when just one does — **decided 2026-09-21**.
 - **Evidence string (example):** *"DNS parent domain `<parent>`, longest subdomain `<x>`:
   Shannon entropy 4.40 bits/char (cutoff: at least 4.2 bits/char, met; benign baseline
-  about 2.5); subdomain length 40 chars (cutoff: at least 30 chars, met); queries per 60 s
-  window 312 (cutoff: at least 50, met; …). Meaning: …"*
+  about 2.5); subdomain length 40 chars (cutoff: at least 30 chars, met); query rate 312.0 queries
+  per 60 s (cutoff: at least 50 queries per 60 s, met; scaled to a 60 s window from …).
+  Meaning: …"*
 
 ### 2. C2 beaconing
 - **Method:** Group connections by `(src_ip, dst_ip)` — destination port ignored, so a

@@ -112,9 +112,12 @@ class C2BeaconDetector(Detector):
         evidence = evidence_sentence(
             f"Host {src_ip} to {dst_ip}",
             [
-                Measurement("connections", len(group), cfg.min_connections, Cutoff.AT_LEAST),
+                # Both were checked in _evaluate (too few or too irregular returned early),
+                # so a finding only exists when both are met.
+                Measurement("connections", len(group), cfg.min_connections, Cutoff.AT_LEAST,
+                            True),
                 Measurement("coefficient of variation of the gaps", cv,
-                            cfg.max_coefficient_of_variation, Cutoff.AT_MOST, decimals=3,
+                            cfg.max_coefficient_of_variation, Cutoff.AT_MOST, True, decimals=3,
                             context=f"mean gap {mean:.1f} s, spread ±{stdev:.1f} s"),
             ],
             "the connections arrive at machine-regular intervals, as an automated "
