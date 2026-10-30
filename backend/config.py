@@ -58,6 +58,10 @@ class Allowlists:
     )
     # Legitimately regular timing (heartbeats / keep-alives) — suppress beacon FPs.
     beacon_dst_ips: tuple[str, ...] = ()
+    # Address ranges (CIDR) of harmless discovery traffic the beacon detector skips:
+    # multicast (SSDP/mDNS announce on a fixed timer, e.g. 239.255.255.250 every 120s)
+    # and limited broadcast. Real C2 does not beacon to these.
+    beacon_dst_cidrs: tuple[str, ...] = ("224.0.0.0/4", "255.255.255.255/32")
 
 
 # --------------------------------------------------------------------------- #

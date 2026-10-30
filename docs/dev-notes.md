@@ -182,7 +182,8 @@ and a 10-minute beacon wobbling 20 s both score about 0.03. Near 0 is robotic.
 **Steps** (`detectors/c2_beacon.py`).
 1. Group flows by (source IP, destination IP); the destination port is ignored so a
    beacon that changes ports is still caught.
-2. Skip allowlisted destinations (empty for now).
+2. Skip allowlisted destinations: exact IPs and address ranges (multicast and broadcast by
+   default, see Limits).
 3. Need at least 10 connections, else stop.
 4. Sort the start times and take the gaps.
 5. Compute CV; if the mean is 0 or there are fewer than 2 gaps it is not computable and
@@ -206,6 +207,13 @@ beaconing, not human traffic."
 - One signal, nothing to corroborate it, so severity is always `MEDIUM`.
 - Legitimate automation (update checks, monitoring, NTP) is regular too; the allowlist is
   the tool for that.
+- **Multicast is skipped on purpose (issue #17).** Devices announce themselves on a timer
+  to shared addresses: SSDP sends to `239.255.255.250` every 120 s (CV 0.000), which once
+  looked like a beacon (`ctu-185-1`). Destinations inside `Allowlists.beacon_dst_cidrs`
+  are skipped, default `224.0.0.0/4` (all multicast; CIDR = an address block) and
+  `255.255.255.255/32` (broadcast). 22 connections 120 s apart to `239.255.255.250`: no
+  finding; the same timing to `203.0.113.9`: a finding. Skips are logged at INFO. Blind
+  spot: C2 hidden in multicast would be missed. A configured list replaces the default.
 - A scan with evenly spaced probes also has CV near 0 and trips this detector.
 - Slow beacons in a short capture never reach 10 connections.
 
@@ -311,6 +319,7 @@ guess to tune on real captures; only the entropy values came from the original p
 | `distinct_ports_threshold` / `distinct_hosts_threshold` / `window_secs` | 100 / 10 / 10 (proposed) | Port-scan: distinct ports or hosts within the window. |
 | `dns_parent_domains` allowlist | `cloudfront.net`, `akamaihd.net`, `googleusercontent.com`, `amazonaws.com` | Skipped by the DNS detector; they legitimately look random. |
 | `beacon_dst_ips` allowlist | empty | Destination IPs skipped by the beacon detector. |
+| `beacon_dst_cidrs` allowlist | `224.0.0.0/4`, `255.255.255.255/32` | Address ranges (CIDR) skipped by the beacon detector: multicast and broadcast discovery traffic. |
 | `max_upload_bytes` | 512 MiB (proposed) | Larger uploads are rejected. |
 | `upload_chunk_bytes` / `hash_chunk_bytes` | 1 MiB | Streaming size; keeps memory flat. |
 | `hash_algorithm` | blake3 | Primary seal hash. |

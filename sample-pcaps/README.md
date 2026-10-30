@@ -30,7 +30,7 @@ Seeded and built from a fixed epoch, so bytes and seal hash are stable.
 |---|---|---|---|
 | `ctu-130-1-beacon.pcap` | 8.1 MB | `c2_beacon` MEDIUM: 10.0.2.104 to 54.245.114.184 every ~9s over 6,949 connections, CV 0.020 | CTU-Malware-Capture-Botnet-130-1 (MSIL/Spy.Agent on Windows 7), Stratosphere Laboratory, CTU Prague. CC BY: cite Garcia et al. 2014 and the dataset |
 | `ctu-120-1-hostscan.pcap` | 9.8 MB | `port_scan` MEDIUM: 10.0.2.104 reached 10 hosts (4 ports) in 10s. Fires on the host threshold, not the port one | CTU-Malware-Capture-Botnet-120-1, same terms |
-| `ctu-185-1-ssdp-falsepositive.pcap` | 6.0 MB | `c2_beacon` MEDIUM on **benign** SSDP multicast: 192.168.1.2 to 239.255.255.250 every 120s, CV 0.000. A known false positive, kept as a regression target for an allowlist or multicast guard | CTU-Malware-Capture-Botnet-185-1, same terms |
+| `ctu-185-1-ssdp-falsepositive.pcap` | 6.0 MB | Benign SSDP multicast (192.168.1.2 to 239.255.255.250 every 120s, CV 0.000) used to fire `c2_beacon` MEDIUM. Fixed by the multicast CIDR allowlist (issue #17): expected **no findings** now; kept as the regression target | CTU-Malware-Capture-Botnet-185-1, same terms |
 | `ctu-103-nofindings.pcap` | 0.6 MB | none (10 flows, too few for any rule). Infected host but nothing detectable | CTU-Malware-Capture-Botnet-103, same terms |
 | `dns-dns2tcp.pcap` | 4.5 KB | `dns_exfil` HIGH (subdomains of hsc.fr) | dmachard/datasets-malicious-dns, pinned commit `b8f90de`. **No licence file in the repo** |
 | `dns-dnsextrator.pcap` | 8.8 KB | `dns_exfil` HIGH | same |
@@ -59,7 +59,7 @@ traffic with some Windows lab-VM noise; read the per-capture README before quoti
    (a label with a non-UTF-8 byte, from `dpkt`'s name decoding). `analyze_pcap`
    dies, so an upload of such a capture would fail. Same for elastic/examples
    `dns-tunnel-iodine.pcap` (Apache-2.0, 77 KB, not included for that reason).
-2. **SSDP multicast triggers a C2 false positive** (`ctu-185-1`).
+2. ~~SSDP multicast triggers a C2 false positive~~ (`ctu-185-1`): fixed, issue #17.
 3. **DNS exfil needs volume**: `dns-dnscat2.pcap` has tunnel traffic
    but only 12 queries, below the rate/length corroboration needed.
 4. **JA3: no sample yet.** No licence-clear small capture with a known abuse.ch

@@ -99,8 +99,9 @@ Each is a transparent rule, not a model.
 - **Edge cases (decided):** A group with a zero-mean IAT (all connections landed at the
   identical timestamp — a pcap timestamp-resolution artifact, not a real signal) is
   treated as **not computable** and skipped, not flagged. `dst_ip` allowlist
-  (`Allowlists.beacon_dst_ips`) checked before any stats work, for known-legitimate
-  heartbeats.
+  (`Allowlists.beacon_dst_ips`) and destination ranges (`Allowlists.beacon_dst_cidrs`,
+  default multicast `224.0.0.0/4` and broadcast, issue #17) are checked before any stats
+  work, for known-legitimate heartbeats and discovery traffic.
 - **Severity:** Always `MEDIUM` — **decided 2026-09-21**. Unlike DNS-exfil (entropy +
   length/rate corroboration → HIGH), this detector has one signal (CV), so there is no
   second axis to corroborate against without inventing an unconfigured cutoff. Revisit
