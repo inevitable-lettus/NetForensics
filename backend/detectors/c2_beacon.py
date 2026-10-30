@@ -14,6 +14,7 @@ from collections.abc import Sequence
 
 from backend.config import Allowlists, C2BeaconConfig
 from backend.detectors.base import Detector
+from backend.detectors.evidence import Cutoff, Measurement, evidence_sentence
 from backend.models import Finding, Flow, Severity
 
 logger = logging.getLogger(__name__)
@@ -108,11 +109,19 @@ class C2BeaconDetector(Detector):
     ) -> Finding:
         mean = statistics.mean(iats)
         stdev = statistics.stdev(iats)
-        evidence = (
-            f"Host {src_ip} contacted {dst_ip} every ~{mean:.0f}s (±{stdev:.1f}s) "
-            f"over {len(group)} connections (coefficient of variation {cv:.3f}, "
-            f"threshold {cfg.max_coefficient_of_variation}) — robotic regularity "
-            f"characteristic of C2 beaconing, not human traffic."
+        evidence = evidence_sentence(
+            f"Host {src_ip} to {dst_ip}",
+            [
+                # Both were checked in _evaluate (too few or too irregular returned early),
+                # so a finding only exists when both are met.
+                Measurement("connections", len(group), cfg.min_connections, Cutoff.AT_LEAST,
+                            True),
+                Measurement("coefficient of variation of the gaps", cv,
+                            cfg.max_coefficient_of_variation, Cutoff.AT_MOST, True, decimals=3,
+                            context=f"mean gap {mean:.1f} s, spread ±{stdev:.1f} s"),
+            ],
+            "the connections arrive at machine-regular intervals, as an automated "
+            "check-in (C2 beacon) does; people browsing are irregular",
         )
         return Finding(
             detector=self.name,

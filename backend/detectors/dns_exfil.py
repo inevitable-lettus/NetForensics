@@ -11,6 +11,7 @@ from collections.abc import Sequence
 
 from backend.config import DnsExfilConfig
 from backend.detectors.base import Detector
+from backend.detectors.evidence import Cutoff, Measurement, evidence_sentence, plain_number
 from backend.models import DnsFeatures, Finding, Flow, Severity
 
 
@@ -70,18 +71,36 @@ class DnsExfilDetector(Detector):
         if not (length_hit or rate_hit):
             return None
         severity = Severity.HIGH if (length_hit and rate_hit) else Severity.MEDIUM
-        return self._build_finding(dns, rate, severity, cfg)
+        return self._build_finding(dns, rate, length_hit, rate_hit, severity, cfg)
 
     def _build_finding(
-        self, dns: DnsFeatures, rate: float, severity: Severity, cfg: DnsExfilConfig
+        self,
+        dns: DnsFeatures,
+        rate: float,
+        length_hit: bool,
+        rate_hit: bool,
+        severity: Severity,
+        cfg: DnsExfilConfig,
     ) -> Finding:
         longest = _longest_subdomain(dns)
-        evidence = (
-            f"Subdomain {longest!r} of {dns.parent_domain!r} has Shannon entropy "
-            f"{dns.max_subdomain_entropy:.2f} (benign baseline ~{cfg.benign_entropy_baseline}), "
-            f"length {dns.max_subdomain_length} chars, with {dns.query_count} queries "
-            f"in {cfg.query_rate_window_secs}s (~{rate:.0f}/window) — consistent with data "
-            f"encoded into DNS queries."
+        window = cfg.query_rate_window_secs
+        queries = "query" if dns.query_count == 1 else "queries"
+        evidence = evidence_sentence(
+            f"DNS parent domain {dns.parent_domain!r}, longest subdomain {longest!r}",
+            [
+                # Entropy below its cutoff returned early in _evaluate, so it is met here.
+                Measurement("Shannon entropy", dns.max_subdomain_entropy, cfg.entropy_threshold,
+                            Cutoff.AT_LEAST, True, "bits/char", 2,
+                            f"benign baseline about {plain_number(cfg.benign_entropy_baseline)}"),
+                Measurement("subdomain length", dns.max_subdomain_length,
+                            cfg.subdomain_length_threshold, Cutoff.AT_LEAST, length_hit, "chars"),
+                Measurement("query rate", rate, cfg.query_rate_threshold, Cutoff.AT_LEAST,
+                            rate_hit, f"queries per {window} s", 1,
+                            f"scaled to a {window} s window from {dns.query_count} {queries} "
+                            "in total"),
+            ],
+            "the subdomains look random, and are long or frequent, as when data is "
+            "smuggled out encoded in DNS queries",
         )
         return Finding(
             detector=self.name,

@@ -13,6 +13,7 @@ from collections.abc import Sequence
 
 from backend.config import PortScanConfig
 from backend.detectors.base import Detector
+from backend.detectors.evidence import Cutoff, Measurement, evidence_sentence
 from backend.models import Finding, Flow, Severity
 
 
@@ -82,7 +83,9 @@ class PortScanDetector(Detector):
         if not (ports_hit or hosts_hit):
             return None
         severity = Severity.HIGH if (ports_hit and hosts_hit) else Severity.MEDIUM
-        return self._build_finding(src_ip, group, max_ports, max_hosts, severity, cfg)
+        return self._build_finding(
+            src_ip, group, max_ports, max_hosts, ports_hit, hosts_hit, severity, cfg
+        )
 
     def _build_finding(
         self,
@@ -90,15 +93,21 @@ class PortScanDetector(Detector):
         group: list[Flow],
         max_ports: int,
         max_hosts: int,
+        ports_hit: bool,
+        hosts_hit: bool,
         severity: Severity,
         cfg: PortScanConfig,
     ) -> Finding:
-        evidence = (
-            f"Source {src_ip} reached {max_ports} distinct destination ports "
-            f"(threshold {cfg.distinct_ports_threshold}) and {max_hosts} distinct "
-            f"destination hosts (threshold {cfg.distinct_hosts_threshold}) within a "
-            f"{cfg.window_secs}s window — fan-out consistent with port-scan "
-            f"reconnaissance."
+        evidence = evidence_sentence(
+            f"Source {src_ip}, busiest {cfg.window_secs} s window",
+            [
+                Measurement("distinct destination ports", max_ports,
+                            cfg.distinct_ports_threshold, Cutoff.AT_LEAST, ports_hit),
+                Measurement("distinct destination hosts", max_hosts,
+                            cfg.distinct_hosts_threshold, Cutoff.AT_LEAST, hosts_hit),
+            ],
+            "one source tried at least the cutoff number of ports or machines within a few "
+            "seconds, more than normal use does, as a port scan (probing for open services) does",
         )
         return Finding(
             detector=self.name,
