@@ -95,8 +95,10 @@ a teaching explanation, human review before merge; plumbing is written directly.
 - [x] Step 2 `[CORE]` streaming dual-hash seal (BLAKE3 + SHA-256, one pass) —
       `hash_file` → `FileDigests` (shared with verify), `seal_pcap` → PENDING seal.
 - [x] Step 3 `[CORE]` hash-chained custody (`backend/evidence/custody.py`, issue #10) —
-      built directly by Jim per the 2026-10-20 human decision; awaiting human review.
-- [ ] Step 4 `[CORE]` RFC 3161 timestamp request/verify (`timestamp.py`).
+      built directly by Jim per the 2026-10-20 human decision; merged (#19).
+- [ ] Step 4 `[CORE]` RFC 3161 timestamp request/verify (`timestamp.py`). Built on
+  `feat/timestamp-verify` (#11): request builder, pinned-certificate reply check,
+  timestamper wired into the web app; waiting for the human's review.
 - [ ] Step 5 `[CORE]` case verification + chain-head anchoring (`verify.py`).
 - [x] Step 6 SQLite append-only store + content-addressed evidence store
       (`backend/db/`, issue #2, PR #13): `interfaces.py` (Protocols `CaseRepository`,
@@ -185,7 +187,7 @@ language, no code) → user researches + writes it → user asks for help only i
 | 12 | **Stale README status** | README listed the upload API, orchestrator, PDF and frontend as unbuilt and said 60 tests; suite is 92. | RESOLVED by this refresh PR. |
 
 - **2026-10-22** — Docs only (Toby). Human approved every recommendation in dev-notes
-  section "Open questions" (A-I); recorded as a short decisions log (section 13).
+  section "Open questions" (A-I); recorded as a short decisions log (section 14).
   Shortened `docs/dev-notes.md` from 1035 to about 565 lines, same facts and worked
   examples. Closed risk #3 (wording, step 1). Added the brevity rule to the CLAUDE.md
   Dev notes rule. No code changes.

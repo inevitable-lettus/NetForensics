@@ -20,7 +20,7 @@ own code or plain arithmetic.
 6. [The seal: hashing the evidence](#6-the-seal-hashing-the-evidence)
 7. [Current thresholds and what they mean](#7-current-thresholds-and-what-they-mean)
 8. [Evidence storage: SQLite and content-addressed files](#8-evidence-storage-sqlite-and-content-addressed-files)
-9. [Trusted-timestamp transport and retry](#9-trusted-timestamp-transport-and-retry)
+9. [Trusted timestamps: transport, retry and checking](#9-trusted-timestamps-transport-retry-and-checking)
 10. [Custody hash chain](#10-custody-hash-chain)
 11. [The command-line tool](#11-the-command-line-tool)
 12. [Not built yet](#12-not-built-yet)
@@ -323,7 +323,7 @@ guess to tune on real captures; only the entropy values came from the original p
 | `max_upload_bytes` | 512 MiB (proposed) | Larger uploads are rejected. |
 | `upload_chunk_bytes` / `hash_chunk_bytes` | 1 MiB | Streaming size; keeps memory flat. |
 | `hash_algorithm` | blake3 | Primary seal hash. |
-| `tsa_url` | `https://freetsa.org/tsr` | Free timestamp authority (transport built, section 9; token checking not built). |
+| `tsa_url` | `https://freetsa.org/tsr` | Free timestamp authority (transport and token checking, section 9). |
 | `tsa_timeout_secs` | 5 | Total deadline for one request, then it counts as unavailable. |
 | `tsa_max_reply_bytes` | 64 KiB | Larger replies are refused (real ones are a few KB). |
 | `tsa_retry_attempts` / `tsa_retry_backoff_secs` / `tsa_retry_backoff_max_secs` | 3 / 2s / 30s | Retries per PENDING case, waiting 2s, 4s, … up to 30s. |
@@ -376,49 +376,44 @@ Someone edits the file to `Pcap-bytes`; its SHA-256 is now completely different,
 
 ---
 
-## 9. Trusted-timestamp transport and retry
+## 9. Trusted timestamps: transport, retry and checking
 
-_Issue #3, PR #14._
+_Issue #3, PR #14 (transport); issue #11, PR #34 (`backend/evidence/timestamp.py`)._
 
-**What it does.** Sends the seal's fingerprint to an outside Timestamp Authority and stores
-the signed reply, without a slow or missing connection ever breaking an upload or producing
-a fake timestamp.
+**What it does.** Sends the seal's SHA-256 to an outside Timestamp Authority (TSA), checks
+the signed reply, and stores it, without a slow TSA ever breaking an upload or a forged
+reply ever being stored.
 
-**Key ideas.** *RFC 3161*: the standard for trusted timestamps; a *TSA* (we use freetsa.org)
-signs "I saw this hash at time T" and returns a *token*. As a third party, it cannot be
-back-dated by us. *PENDING / GRANTED*: waiting for a token / holding one. *Exponential
-backoff*: waiting longer after each failure. *Circuit breaker*: after several failures in a
-row, stop for now.
+**Key ideas.** *RFC 3161*: the standard for trusted timestamps; the TSA (freetsa.org) signs
+"I saw this hash at time T" and returns a *token* we cannot back-date. *PENDING / GRANTED*:
+waiting for a token / holding one. *Pinning*: we keep our own copy of FreeTSA's certificate
+and its CA (`backend/evidence/certs/`) and accept only that exact signer. *Nonce*: a random
+number the TSA must echo, so an old reply cannot be replayed.
 
 **Steps.**
-1. `request_timestamp` POSTs the request to the TSA in a background worker; the caller waits
-   at most `tsa_timeout_secs` in total and reads the reply under a 64 KiB cap. Timeout,
-   connection or DNS failure, non-200 status, or an oversized or empty reply raises
-   `TsaUnavailableError`. It never retries itself.
-2. On upload the API makes **one** attempt; on failure the case is still stored with the seal
-   PENDING. The upload never fails because of the TSA.
-3. `retry_all_pending` walks every PENDING case with up to `tsa_retry_attempts` tries and
-   backoff. A token is stored through the database's one-time PENDING → GRANTED rule; a
-   lost race is "already granted", an empty token is refused.
-4. After `tsa_batch_stop_after_unavailable` cases in a row find the TSA down, the rest of
-   the run is skipped and left PENDING.
+1. Upload makes **one** attempt, with one total deadline (`tsa_timeout_secs`) and a 64 KiB
+   reply cap; on failure the case is stored PENDING. The upload never fails because of the TSA.
+2. Before storing, five checks must pass: status granted; signed by the pinned certificate,
+   valid at the token's time; certificate marked for time stamping; token covers SHA-256 and
+   exactly our hash; nonce matches. "Waiting" stays PENDING; anything else is refused.
+3. `retry_all_pending` retries PENDING cases with exponential backoff, and stops the run
+   after `tsa_batch_stop_after_unavailable` cases in a row find the TSA down.
+4. Re-checking a stored seal: a half-filled record (GRANTED without a token, PENDING with one)
+   fails as edited, not as "not stamped yet".
 
-**Example: backoff and breaker.** 3 attempts, base 2s, cap 30s: wait min(2·2⁰, 30) = 2s after
-failure 1, min(2·2¹, 30) = 4s after failure 2, none after attempt 3. One case costs at most
-2 + 4 = 6s of waiting plus 3 deadlines (3 × 5s = 15s), about 21s. With the TSA down and 100
-PENDING cases, the breaker stops after 3 cases (~63s) instead of ~35 minutes.
-
-**Example: the total deadline.** httpx's timeout counts per network read, so a server
-dripping 1 byte every 0.5s would never trip a 5s read timeout. Running the whole request in
-a worker with one total deadline fixes it: with `tsa_timeout_secs = 2`, Pam's body-drip test
-stops at 2.0s instead of 49.9s, and her header-drip test at 2.0s instead of running past 70s.
+**Example: a real reply (2026-10-27).** Request 69 bytes: SHA-256 `3880d492…a3e7`, nonce
+`0x5EEDF00DCAFEBEEF`. FreeTSA answered 4,644 bytes: granted, same hash and nonce, `09:29:26
+UTC`. Pam flipped every bit of every byte (37,152 tries): every change to hash, time, nonce
+or signature is refused; only the reply's spare CA copy and 11 label bytes can change.
 
 **Limits.**
-- This code moves bytes; it does **not** check the token (signature, certificate chain, that
-  it covers *our* hash, its time). That is `timestamp.py` (#11) and `verify.py` (#12); until
-  #11 lands no timestamper is wired in and every seal stays PENDING.
-- HTTP redirects are not followed (a 307 counts as "unavailable"): the TSA URL is fixed
-  configuration.
+- `rfc3161-client` up to 1.0.8 trusts certificates carried inside a reply, so we pin the TSA
+  certificate itself (1.0.9 fixes this; the pin stays).
+- Revocation is not checked; one pinned certificate (renewed Feb 2026), so older tokens fail.
+- Uploads can wait up to 5 s on a slow TSA. The CLI passes no timestamper yet.
+- Deleting a token *and* resetting to PENDING looks like "never stamped": closed by a
+  custody entry on grant (#12), which also re-checks tokens during verification.
+- Redirects are not followed (a 307 counts as "unavailable"); the TSA URL is fixed config.
 
 ---
 
@@ -515,8 +510,6 @@ lands.
 
 - **Custody log wired into uploads:** the chain logic exists (section 10) but the API does
   not append entries yet.
-- **RFC 3161 token building and checking:** transport and retry are built (section 9);
-  building the request and checking the token is #11, so seals stay `PENDING` until then.
 - **Case verification and the tamper demo:** re-hash the stored file, compare to the seal,
   walk the chain. The 10-second flip-one-byte demonstration. The CLI already lists
   `verify` and `tamper-demo` (section 11).

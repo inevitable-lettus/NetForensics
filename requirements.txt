@@ -12,7 +12,8 @@ scipy>=1.11
 
 # Evidence integrity
 blake3>=0.4
-rfc3161-client>=0.1.2        # RFC 3161 trusted timestamping (TSA client)
+rfc3161-client>=1.0.8,<2    # RFC 3161 tokens (timestamp.py pins the TSA certificate)
+cryptography>=44,<51         # certificate parsing; FreeTSA's CA has a non-positive serial that newer releases may refuse
 
 # Backend / API
 fastapi>=0.110
