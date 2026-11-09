@@ -580,3 +580,42 @@ The human approved every recommendation in the former "Open questions" section o
 | G | How to build next pieces | Recommendation approved: option 1 for D, E and F (Jim builds, explains before each change, you approve each PR before merge); option 2 (line-by-line pairing) for the JA3 build. Core PRs merge only after human approval, relayed via god. |
 | H | Start #11 while #19 is under review? | Option 2: Jim may write #11 now; you review one PR at a time, #19 first. |
 | I | Anchoring the chain head, issue #12 | Information only, no decision. A chain cannot show that the last entries were cut off (delete entries 8 and 9 of 10 and the remaining 8 still verify). The fix is to have a TSA sign the head and keep the signed copy outside the database. Jim will recommend options when he reaches #12. |
+
+---
+
+## 15. Case verification and chain-head anchoring (issue #12)
+
+**What it does.** `verify_case` (`backend/evidence/verify.py`) answers "is this still the
+evidence that was sealed?" with five checks, all always run: `pcap_digests` (BLAKE3,
+SHA-256 and size of the stored file), `custody_chain`, `seal_binding` (entry 0 belongs to
+this seal), `rfc3161_timestamp` and `chain_head_anchor`. Any failed check gives ALTERED;
+otherwise any check not yet possible (a PENDING timestamp) gives INCOMPLETE; otherwise INTACT.
+INTACT means "matches the seal and an independent timestamp", not "admissible".
+
+**Key concept: anchoring.** A hash chain cannot show its *end* was cut: delete entries 8
+and 9 of 10 and entries 0-7 still verify. An *anchor* records "entry N had hash H" in a
+separate append-only table (`chain_anchors`), and asks the TSA to sign H. The head hash is
+already a SHA-256 digest that covers the index and case id, so the TSA signs it directly
+and `openssl ts -verify -digest H` can re-check it. Verification fails if an anchored
+entry is gone or has a different hash, if a token does not verify, or if the chain holds an
+"anchor" event whose record was deleted.
+
+**Worked example.** Chain: ingest, finding, finding (entry 2), anchor event for entry 2,
+verify. Cut the chain back to 2 entries: `custody_chain` still passes, but
+`chain_head_anchor` fails with "entry 2 was anchored ... but the chain now has only 2
+entries". Without the anchor the same cut only gives INCOMPLETE (`test_verify.py`).
+
+**Design choice (and why).** TSA-signed anchor in its own table, recommended over the
+alternatives:
+- Anchor stored only as a custody event: cut with the tail it protects. Rejected.
+- Head printed in the PDF or API only: needs the holder to compare by hand, and proves
+  nothing about *when*. Kept as a complement (the CLI prints the latest anchor).
+- Our own signature on the head: needs a secret key on the same machine as the database. Rejected.
+
+**Limits.**
+- Entries after the latest anchor rest on the chain alone (the evidence line counts them).
+- Someone who can write the database can delete anchor rows *and* the tail together;
+  only copies of the anchor handed out earlier show that.
+- TSA down: the anchor is stored PENDING with no token and the verdict is INCOMPLETE. A
+  PENDING anchor is never upgraded; the next anchor supersedes it.
+- Verification only reads; the caller appends the `verify` event it returns.

@@ -7,16 +7,18 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from backend.config import EvidenceConfig
+from backend.db.anchor_log import SqliteAnchorLog
 from backend.db.case_repository import SqliteCaseRepository
 from backend.db.custody_log import SqliteCustodyLog
 from backend.db.evidence_store import ContentAddressedEvidenceStore
-from backend.db.interfaces import CaseRepository, CustodyLog, EvidenceStore
+from backend.db.interfaces import AnchorLog, CaseRepository, CustodyLog, EvidenceStore
 
 
 @dataclass(frozen=True)
 class Storage:
     cases: CaseRepository
     custody: CustodyLog
+    anchors: AnchorLog
     evidence: EvidenceStore
 
     @classmethod
@@ -25,5 +27,6 @@ class Storage:
         return cls(
             cases=SqliteCaseRepository(db_path),
             custody=SqliteCustodyLog(db_path),
+            anchors=SqliteAnchorLog(db_path),
             evidence=ContentAddressedEvidenceStore(Path(config.evidence_store_dir)),
         )

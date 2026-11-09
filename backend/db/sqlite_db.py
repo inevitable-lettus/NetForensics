@@ -1,4 +1,4 @@
-"""SQLite connection + schema: cases, seals, findings and the custody log.
+"""SQLite connection + schema: cases, seals, findings, the custody log and its anchors.
 
 Append-only is enforced *inside the database* by triggers that abort any UPDATE or
 DELETE, so no code path (ours or a future one) can edit history by accident. The one
@@ -62,9 +62,21 @@ CREATE TABLE IF NOT EXISTS custody_entries (
     payload_json TEXT    NOT NULL,
     PRIMARY KEY (case_id, idx)
 );
+
+CREATE TABLE IF NOT EXISTS chain_anchors (
+    case_id            TEXT    NOT NULL,
+    head_index         INTEGER NOT NULL CHECK (head_index >= 0),
+    head_hash          TEXT    NOT NULL,
+    anchored_at        TEXT    NOT NULL,
+    timestamp_status   TEXT    NOT NULL CHECK (timestamp_status IN ('pending', 'granted')),
+    rfc3161_token      BLOB,
+    timestamp_gen_time TEXT,
+    tsa_url            TEXT,
+    PRIMARY KEY (case_id, head_index)
+);
 """
 
-_FULLY_APPEND_ONLY = ("cases", "findings", "custody_entries")
+_FULLY_APPEND_ONLY = ("cases", "findings", "custody_entries", "chain_anchors")
 
 # Primary key of every table. `INSERT OR REPLACE` / `REPLACE INTO` resolves a key
 # conflict by deleting the old row WITHOUT firing DELETE triggers (SQLite only fires
@@ -75,6 +87,7 @@ _PRIMARY_KEYS = {
     "seals": ("case_id",),
     "findings": ("case_id", "position"),
     "custody_entries": ("case_id", "idx"),
+    "chain_anchors": ("case_id", "head_index"),
 }
 
 # A seal may change exactly once: PENDING -> GRANTED, filling the three timestamp
