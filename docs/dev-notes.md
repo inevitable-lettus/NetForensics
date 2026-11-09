@@ -28,7 +28,8 @@ own code or plain arithmetic.
 14. [Decisions log](#14-decisions-log)
 15. [Case verification and chain-head anchoring](#15-case-verification-and-chain-head-anchoring-issue-12)
 16. [verify and tamper-demo on the command line](#16-verify-and-tamper-demo-on-the-command-line-issue-4)
-17. [Verification and the tamper test on the web page](#17-verification-and-the-tamper-test-on-the-web-page-issue-5)
+17. [The user documentation site](#17-the-user-documentation-site-issues-24-31)
+18. [Verification and the tamper test on the web page](#18-verification-and-the-tamper-test-on-the-web-page-issue-5)
 
 ## Words used throughout
 
@@ -688,7 +689,7 @@ the update flag, read the diff, commit it.
 
 ---
 
-## 17. Verification and the tamper test on the web page (issue #5)
+## 18. Verification and the tamper test on the web page (issue #5)
 
 **What it does.** The web page (`frontend/`) has three tabs per case: Findings,
 Verification and Tamper test. Both actions call the same code as the CLI
@@ -709,6 +710,12 @@ Verification shows VERIFIED, all five checks passed. The tamper test flips a bit
 712: the copy goes from VERIFIED to ALTERED, only "Evidence file" fails, with the sealed and
 measured BLAKE3 and SHA-256 side by side.
 
+**Two verifies at once.** Verify reads the chain head, then appends after it, so two runs
+must not overlap. The API holds one lock around verify and the tamper test, so runs in one
+server process queue. A writer outside it (the CLI, a second server) can still move the head
+mid-run; then the route returns the report with `recorded: false` and `record_error`, as the
+CLI turns the same error into a warning. The report stands; only its custody entry is lost.
+
 **Limits.** The tamper test needs the stored file (it answers 409 when the file is gone;
-verify reports that case). The open case is kept in the address (`#case=<id>`), so a
-reload reopens it; there is no case list.
+verify reports that case). The open case is kept in the address (`#case=<id>`): a reload,
+a pasted link or an edited hash opens it. There is no case list.

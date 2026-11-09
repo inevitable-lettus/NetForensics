@@ -32,9 +32,17 @@ export default function App() {
     }
   }
 
+  // Open the case named in the hash on first load, and again whenever the hash changes
+  // in this tab (a pasted case link, a manual edit, back/forward).
   useEffect(() => {
-    const caseId = caseFromHash();
-    if (caseId) void load(() => getCase(caseId), "Could not open the case.");
+    function openFromHash() {
+      const caseId = caseFromHash();
+      if (caseId) void load(() => getCase(caseId), "Could not open the case.");
+      else if (window.location.hash === "") setRecord(null);
+    }
+    openFromHash();
+    window.addEventListener("hashchange", openFromHash);
+    return () => window.removeEventListener("hashchange", openFromHash);
   }, []);
 
   return (

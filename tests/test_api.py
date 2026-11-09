@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -7,7 +10,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.api.app import create_app
-from backend.config import Config, EvidenceConfig, IngestConfig
+from backend.case_verification import record_verification, verify_stored
+from backend.config import CONFIG, Config, EvidenceConfig, IngestConfig
 from backend.db.storage import Storage
 from backend.evidence.tsa_client import TsaUnavailableError
 from tests.fixtures.packets import syn_frame, write_timed_pcap
@@ -163,7 +167,7 @@ def test_verify_returns_every_check_and_records_one_entry_plus_anchor(tmp_path: 
     assert [c["name"] for c in body["checks"]] == [
         "pcap_digests", "custody_chain", "seal_binding", "rfc3161_timestamp", "chain_head_anchor"]
     assert all(c["passed"] is True and c["evidence"] for c in body["checks"])
-    assert body["recorded"] is True
+    assert body["recorded"] is True and body["record_error"] is None
     assert body["anchor"]["head_index"] == before and body["anchor"]["timestamp_status"] == "granted"
     events = [e.event_type for e in storage.custody.entries(case_id)][before:]
     assert events == ["verify", "anchor"]
@@ -180,6 +184,50 @@ def test_verify_with_pending_timestamps_is_incomplete_not_intact(client: TestCli
 @pytest.mark.parametrize("case_id", ["0" * 32, "not-a-case"])
 def test_verify_and_tamper_test_of_unknown_case_are_404(client: TestClient, path, case_id):
     assert client.post(f"/api/cases/{case_id}/{path}").status_code == 404
+
+
+def test_two_verifies_at_once_are_both_recorded_one_after_the_other(tmp_path: Path):
+    storage = _storage(tmp_path / "store")
+
+    def slow_grant(_sha):  # widen the window between reading the head and appending
+        time.sleep(0.05)
+        return b"token", GEN
+
+    client = TestClient(create_app(storage, timestamper=slow_grant,
+                                   verify_token=lambda _token, _sha: GEN))
+    case_id = _case(client, tmp_path)
+    before = len(storage.custody.entries(case_id))
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        replies = list(pool.map(lambda _: client.post(f"/api/cases/{case_id}/verify"), range(2)))
+    assert [r.status_code for r in replies] == [200, 200]
+    assert all(r.json()["verdict"] == "intact" and r.json()["recorded"] for r in replies)
+    events = [e.event_type for e in storage.custody.entries(case_id)][before:]
+    assert events == ["verify", "anchor", "verify", "anchor"]
+    assert client.post(f"/api/cases/{case_id}/verify").json()["verdict"] == "intact"
+
+
+def test_verify_racing_another_writer_returns_the_report_unrecorded(tmp_path: Path):
+    """A second process (the CLI, another server) moves the chain head while this
+    verify is waiting on the timestamp authority: the report still comes back, 200."""
+    storage = _storage(tmp_path / "store")
+    race = threading.Event()
+
+    def grant(_sha):
+        if race.is_set():
+            race.clear()  # the other writer, once, at the worst moment
+            other = verify_stored(storage, case_id, CONFIG, lambda _t, _s: GEN)
+            record_verification(storage, case_id, other, lambda _s: (b"token", GEN), CONFIG)
+        return b"token", GEN
+
+    client = TestClient(create_app(storage, timestamper=grant,
+                                   verify_token=lambda _token, _sha: GEN))
+    case_id = _case(client, tmp_path)
+    race.set()
+    reply = client.post(f"/api/cases/{case_id}/verify")
+    assert reply.status_code == 200
+    body = reply.json()
+    assert body["verdict"] == "intact" and body["recorded"] is False and body["anchor"] is None
+    assert "index" in body["record_error"]
 
 
 def test_altered_case_is_reported_and_left_as_found(tmp_path: Path):

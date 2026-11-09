@@ -55,6 +55,14 @@ export function VerifyPanel({ caseId }: { caseId: string }) {
 }
 
 function AnchorNote({ result }: { result: VerifyResponse }) {
+  if (!result.anchor && result.verdict !== "altered") {
+    return (
+      <p className="note">
+        The result above stands, but this run was not recorded in the custody chain: another
+        verification changed the chain at the same moment. Verify again to record it.
+      </p>
+    );
+  }
   if (!result.anchor) {
     return (
       <p className="note">

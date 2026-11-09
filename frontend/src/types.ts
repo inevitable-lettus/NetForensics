@@ -56,6 +56,8 @@ export interface VerifyResponse extends VerificationReport {
     timestamp_status: TimestampStatus;
     timestamp_gen_time: string | null;
   } | null;
+  /** Why a non-altered run was not recorded (another writer moved the chain head). */
+  record_error: string | null;
 }
 
 /** POST /api/cases/{id}/tamper-test (backend/case_verification.py TamperTest). */
