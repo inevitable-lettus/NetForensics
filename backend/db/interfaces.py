@@ -23,7 +23,12 @@ _CASE_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 
 
 class CaseNotFoundError(LookupError):
-    """No case exists under the requested id."""
+    """No case exists under the requested id. The message names the id, so the CLI's
+    one-line `error:` says what was not found."""
+
+    def __init__(self, case_id: str) -> None:
+        super().__init__(f"no case with id {case_id}")
+        self.case_id = case_id
 
 
 class CaseExistsError(ValueError):

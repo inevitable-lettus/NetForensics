@@ -585,6 +585,7 @@ The human approved every recommendation in the former "Open questions" section o
 | G | How to build next pieces | Recommendation approved: option 1 for D, E and F (Jim builds, explains before each change, you approve each PR before merge); option 2 (line-by-line pairing) for the JA3 build. Core PRs merge only after human approval, relayed via god. |
 | H | Start #11 while #19 is under review? | Option 2: Jim may write #11 now; you review one PR at a time, #19 first. |
 | I | Anchoring the chain head, issue #12 | Information only, no decision. A chain cannot show that the last entries were cut off (delete entries 8 and 9 of 10 and the remaining 8 still verify). The fix is to have a TSA sign the head and keep the signed copy outside the database. Jim will recommend options when he reaches #12. |
+| J | Anchoring decision, issue #12 | Chosen: the TSA signs the newest custody entry's hash, kept in its own append-only table (`chain_anchors`) plus an `anchor` custody event; built in PR #39, reasons and limits in section 15. |
 
 ---
 

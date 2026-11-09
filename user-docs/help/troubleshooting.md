@@ -82,7 +82,7 @@ Exit code 1 is shared with ALTERED. Standard error tells them apart: an error pr
 --8<-- "user-docs/examples/verify-unknown-case.txt"
 ```
 
-An unknown case id prints the id back. Check that `--store` points at the store the case was
+An unknown case id prints `no case with id` and the id you typed. Check that `--store` points at the store the case was
 made in; each store has its own database.
 
 ## `tshark` not found
