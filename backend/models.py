@@ -156,6 +156,25 @@ class CustodyEntry:
     payload: dict[str, object] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class ChainAnchor:
+    """A record, kept OUTSIDE the custody log, that entry `head_index` of a case's
+    chain had hash `head_hash`. When GRANTED, `rfc3161_token` is a TSA reply over
+    `head_hash` (itself a SHA-256 hex digest), so the head is fixed in time by a
+    third party. Removing the tail of the chain past `head_index` can then be seen:
+    the anchored entry is missing. PENDING means the TSA was not reached; the head
+    is recorded, never a faked token (see backend/evidence/anchor.py)."""
+
+    case_id: str
+    head_index: int
+    head_hash: str
+    anchored_at: datetime     # this system's clock, when the anchor was taken
+    timestamp_status: TimestampStatus = TimestampStatus.PENDING
+    rfc3161_token: bytes | None = None
+    timestamp_gen_time: datetime | None = None
+    tsa_url: str | None = None
+
+
 # --------------------------------------------------------------------------- #
 # Verification results — the explainability contract, applied to integrity
 # --------------------------------------------------------------------------- #

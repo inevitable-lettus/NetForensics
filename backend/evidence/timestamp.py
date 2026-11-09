@@ -68,6 +68,11 @@ _SHA256_OID = x509.ObjectIdentifier("2.16.840.1.101.3.4.2.1")
 _SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 
 
+# `(token_der, sha256_hex) -> genTime`; raises TimestampInvalidError. Case verification
+# takes one so that tests can stand in for a TSA they cannot make sign arbitrary digests.
+TokenVerifier = Callable[[bytes, str], datetime]
+
+
 class TimestampInvalidError(ValueError):
     """A TSA reply or stored token failed a check. Never stored, never retried: a
     bad signature does not get better by asking again."""
@@ -249,13 +254,20 @@ def make_timestamper(
 # --------------------------------------------------------------------------- #
 
 
-def check_seal_timestamp(seal: SealRecord, trust: TsaTrust) -> CheckResult:
+def token_verifier(trust: TsaTrust) -> TokenVerifier:
+    """The production TokenVerifier: `verify_reply` against the pinned certificates."""
+    return lambda token, sha256_hex: verify_reply(token, sha256_hex, trust)
+
+
+def check_seal_timestamp(
+    seal: SealRecord, trust: TsaTrust, verify_token: TokenVerifier | None = None
+) -> CheckResult:
     """The timestamp check as a magistrate-readable CheckResult. Only a seal that was
     never stamped (PENDING, no token, no genTime) is "not run" (passed=None), never a
     pass. Any half-stamped combination fails: the record moves PENDING -> GRANTED in one
     database update, so a mix can only come from editing it. The nonce is not
     re-checked: it only proves the reply was fresh when it arrived, which
-    `make_timestamper` already did."""
+    `make_timestamper` already did. `verify_token` defaults to `verify_reply` with `trust`."""
     inconsistency = _inconsistency(seal)
     if inconsistency is not None:
         return CheckResult(CHECK_NAME, False, f"The timestamp record is inconsistent "
@@ -264,7 +276,8 @@ def check_seal_timestamp(seal: SealRecord, trust: TsaTrust) -> CheckResult:
         return CheckResult(CHECK_NAME, None, "No trusted timestamp yet: the seal is PENDING, so "
                            "when the evidence was sealed rests on this system's clock alone.")
     try:
-        gen_time = verify_reply(seal.rfc3161_token or b"", seal.sha256_hash, trust)
+        verify = verify_token or token_verifier(trust)
+        gen_time = verify(seal.rfc3161_token or b"", seal.sha256_hash)
     except TimestampInvalidError as error:
         return CheckResult(CHECK_NAME, False, f"The stored timestamp token does not hold: {error}")
     if seal.timestamp_gen_time != gen_time:

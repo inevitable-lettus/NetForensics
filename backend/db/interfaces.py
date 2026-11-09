@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
-from backend.models import CaseRecord, CustodyEntry
+from backend.models import CaseRecord, ChainAnchor, CustodyEntry
 
 _CASE_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 
@@ -81,6 +81,16 @@ class CustodyLog(Protocol):
     def entries(self, case_id: str) -> tuple[CustodyEntry, ...]: ...
 
     def head(self, case_id: str) -> CustodyEntry | None: ...
+
+
+class AnchorLog(Protocol):
+    """Append-only store of chain-head anchors, kept apart from the custody log so
+    that cutting the log's tail does not cut its anchors. Write-once per
+    (case, head_index); a PENDING anchor is never upgraded — a later anchor supersedes it."""
+
+    def append(self, anchor: ChainAnchor) -> None: ...
+
+    def anchors(self, case_id: str) -> tuple[ChainAnchor, ...]: ...
 
 
 class EvidenceStore(Protocol):
