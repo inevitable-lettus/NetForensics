@@ -2,12 +2,13 @@
 command calls `backend.intake`, the store or the TSA retry; nothing here hashes,
 parses or judges evidence itself.
 
-    python -m backend.cli [--store DIR] seal <pcap>
-    python -m backend.cli [--store DIR] analyze <pcap>
-    python -m backend.cli [--store DIR] retry-timestamps
+    python -m backend.cli [--store DIR] [--offline] seal <pcap>
+    python -m backend.cli [--store DIR] [--offline] analyze <pcap>
+    python -m backend.cli [--store DIR] [--offline] verify <case-id>
+    python -m backend.cli [--offline] tamper-demo <pcap>
+    python -m backend.cli [--store DIR] [--offline] retry-timestamps
 
-`verify` and `tamper-demo` are listed but not built: they need the core custody
-chain, timestamp check and case verification (#10, #11, #12).
+`verify` calls `backend.evidence.verify.verify_case`; it hashes nothing itself.
 
 Exit codes are defined once, in `EXIT_CODES_HELP`, which `--help` prints; the docs
 site generates its CLI page from this parser, so help text is the source of truth.
@@ -18,6 +19,7 @@ from __future__ import annotations
 import argparse
 import sqlite3
 import sys
+import tempfile
 import uuid
 from collections.abc import Sequence
 from dataclasses import replace
@@ -26,28 +28,35 @@ from pathlib import Path
 from typing import TextIO
 
 from backend.config import CONFIG, Config
+from backend.db.evidence_store import EvidenceNotFoundError
 from backend.db.storage import Storage
+from backend.evidence.timestamp import TokenVerifier, make_timestamper
 from backend.evidence.tsa_client import RetryOutcome, Timestamper, retry_all_pending
-from backend.intake import seal_and_store, stage_and_validate
-from backend.models import CaseRecord, Finding, TimestampStatus
+from backend.evidence.verify import verification_event, verify_case
+from backend.intake import append_custody, seal_and_store, stage_and_validate
+from backend.models import (
+    CaseRecord,
+    CheckResult,
+    Finding,
+    TimestampStatus,
+    Verdict,
+    VerificationReport,
+)
 
 EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_PENDING = 2
-EXIT_NOT_BUILT = 3
 EXIT_CODES_HELP = f"""exit codes:
-  {EXIT_OK}  success (retry-timestamps: no seal left PENDING)
-  {EXIT_ERROR}  error: missing file, not a pcap, too large, stored copy altered
-     (one "error:" line on stderr)
-  {EXIT_PENDING}  retry-timestamps left at least one seal PENDING; also a usage error
-  {EXIT_NOT_BUILT}  command not built yet (verify, tamper-demo)
-verify will use 0 = INTACT, 1 = ALTERED, 2 = INCOMPLETE when it lands."""
+  {EXIT_OK}  success; verify: INTACT; tamper-demo: the altered copy was caught
+  {EXIT_ERROR}  error: missing file, not a pcap, too large, unknown case, stored copy
+     altered (one "error:" line on stderr); verify: ALTERED
+  {EXIT_PENDING}  retry-timestamps left at least one seal PENDING; verify: INCOMPLETE
+     (nothing failed, a timestamp is still PENDING); also a usage error"""
 
-_NOT_BUILT = "not built yet (needs #10/#11/#12: custody chain, timestamp check, case verification)"
-_NO_TIMESTAMPER = (
-    "No timestamper is wired in yet: building the RFC 3161 request and checking the "
-    "returned token is core issue #11. Seals stay PENDING; nothing is faked."
-)
+_VERDICT_EXIT = {Verdict.INTACT: EXIT_OK, Verdict.ALTERED: EXIT_ERROR,
+                 Verdict.INCOMPLETE: EXIT_PENDING}
+_STATE = {True: "PASS", False: "FAIL", None: "NOT RUN"}
+_NO_TIMESTAMPER = "No TSA in use (offline). Seals stay PENDING; nothing is faked."
 
 
 def main(
@@ -55,11 +64,15 @@ def main(
     config: Config = CONFIG,
     timestamper: Timestamper | None = None,
     out: TextIO = sys.stdout,
+    verify_token: TokenVerifier | None = None,
 ) -> int:
     """Parse `argv`, run one command, return its exit code. `timestamper` is the
-    core RFC 3161 hook (#11); tests inject a fake one, until then it is None."""
+    RFC 3161 hook (`make_timestamper` when run as a program; None = offline).
+    `verify_token` replaces the pinned-certificate token check (tests only)."""
     args = _parser().parse_args(argv)
+    args.verify_token = verify_token
     config = _with_store(config, args.store)
+    timestamper = None if args.offline else timestamper
     try:
         return args.command(args, config, timestamper, out)
     except (OSError, ValueError, LookupError, sqlite3.Error) as error:
@@ -76,20 +89,24 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--store", type=Path, help="evidence store directory "
                         f"(default: {CONFIG.evidence.evidence_store_dir})")
+    parser.add_argument("--offline", action="store_true",
+                        help="never contact the TSA; timestamps and anchors stay PENDING")
     commands = parser.add_subparsers(required=True, metavar="command")
     for name, handler, help_text in (
         ("seal", cmd_seal, "seal a pcap and store it as a new case"),
         ("analyze", cmd_analyze, "seal, store and analyse a pcap; print its findings"),
+        ("tamper-demo", cmd_tamper_demo, "in a throwaway store: seal a copy, verify, flip one "
+                                         "stored byte, verify again"),
     ):
         command = commands.add_parser(name, help=help_text)
         command.add_argument("pcap", type=Path)
         command.set_defaults(command=handler)
     retry = commands.add_parser("retry-timestamps", help="retry every PENDING seal")
     retry.set_defaults(command=cmd_retry_timestamps)
-    for name, argument in (("verify", "case_id"), ("tamper-demo", "pcap")):
-        stub = commands.add_parser(name, help=_NOT_BUILT)
-        stub.add_argument(argument)
-        stub.set_defaults(command=cmd_not_built, name=name)
+    verify = commands.add_parser("verify", help="re-check a stored case: INTACT, ALTERED "
+                                                "or INCOMPLETE")
+    verify.add_argument("case_id")
+    verify.set_defaults(command=cmd_verify)
     return parser
 
 
@@ -145,10 +162,36 @@ def cmd_retry_timestamps(args: argparse.Namespace, config: Config,
     return EXIT_PENDING if counts[RetryOutcome.STILL_PENDING] else EXIT_OK
 
 
-def cmd_not_built(args: argparse.Namespace, config: Config, timestamper: Timestamper | None,
-                  out: TextIO) -> int:
-    print(f"{args.name}: {_NOT_BUILT}", file=sys.stderr)
-    return EXIT_NOT_BUILT
+def cmd_verify(args: argparse.Namespace, config: Config, timestamper: Timestamper | None,
+               out: TextIO) -> int:
+    storage = Storage.open(config.evidence)
+    report = _verify(storage, args.case_id, config, timestamper, args.verify_token)
+    _print_report(report, out)
+    latest = storage.anchors.anchors(args.case_id)[-1]
+    print(f"Anchor     entry {latest.head_index}, hash {latest.head_hash} "
+          f"({latest.timestamp_status.value.upper()}); keep a copy outside this system: "
+          "a later verify must still find this entry.", file=out)
+    return _VERDICT_EXIT[report.verdict]
+
+
+def cmd_tamper_demo(args: argparse.Namespace, config: Config, timestamper: Timestamper | None,
+                    out: TextIO) -> int:
+    """Always a fresh temporary store: the demo damages the stored blob, which a real
+    store may share between cases (blobs are content-addressed)."""
+    with tempfile.TemporaryDirectory(prefix="netforensics-demo-") as scratch:
+        config = _with_store(config, Path(scratch))
+        storage = Storage.open(config.evidence)
+        record = _intake(args.pcap, config, timestamper)
+        print(f"Throwaway store {scratch} (deleted afterwards); {args.pcap} is only read.",
+              file=out)
+        _print_seal(record, out)
+        before = _verify(storage, record.case_id, config, timestamper, args.verify_token)
+        blob = storage.evidence.path_for(record.seal.sha256_hash)
+        offset = _flip_one_byte(blob)
+        print(f"\nFlipped one bit of byte {offset} of the stored copy.", file=out)
+        after = _verify(storage, record.case_id, config, timestamper, args.verify_token)
+        _print_side_by_side(before, after, out)
+    return EXIT_OK if after.verdict is Verdict.ALTERED else EXIT_ERROR
 
 
 # --------------------------------------------------------------------------- #
@@ -169,6 +212,54 @@ def _intake(pcap: Path, config: Config, timestamper: Timestamper | None) -> Case
     return seal_and_store(storage, case_id, staged, config, timestamper)
 
 
+def _verify(storage: Storage, case_id: str, config: Config, timestamper: Timestamper | None,
+            verify_token: TokenVerifier | None) -> VerificationReport:
+    """Verify, then record the verification in the custody chain and anchor its head."""
+    record = storage.cases.load(case_id)
+    try:
+        blob = storage.evidence.path_for(record.seal.sha256_hash)
+    except EvidenceNotFoundError:  # a missing blob is ALTERED, reported by the check
+        blob = Path(config.evidence.evidence_store_dir) / "blobs" / record.seal.sha256_hash
+    report = verify_case(record.seal, storage.custody.entries(case_id),
+                         storage.anchors.anchors(case_id), blob, case_id, config, verify_token)
+    append_custody(storage, record.seal, [verification_event(case_id, report)], timestamper,
+                   config)
+    return report
+
+
+def _flip_one_byte(blob: Path) -> int:
+    """Flip the low bit of the middle byte. Blobs are stored read-only; lift that first."""
+    blob.chmod(0o644)
+    data = bytearray(blob.read_bytes())
+    offset = len(data) // 2
+    data[offset] ^= 0x01
+    blob.write_bytes(bytes(data))
+    return offset
+
+
+def _print_report(report: VerificationReport, out: TextIO) -> None:
+    for check in report.checks:
+        _print_check(check, out)
+    print(f"\nVerdict    {report.verdict.value.upper()}", file=out)
+
+
+def _print_check(check: CheckResult, out: TextIO) -> None:
+    print(f"[{_STATE[check.passed]}] {check.name}: {check.evidence}", file=out)
+
+
+def _print_side_by_side(before: VerificationReport, after: VerificationReport,
+                        out: TextIO) -> None:
+    print(f"\n{'check':<20} {'before':<11} after", file=out)
+    for old, new in zip(before.checks, after.checks, strict=True):
+        print(f"{old.name:<20} {_STATE[old.passed]:<11} {_STATE[new.passed]}", file=out)
+    print(f"{'verdict':<20} {before.verdict.value.upper():<11} {after.verdict.value.upper()}",
+          file=out)
+    print("\nAfter tampering:", file=out)
+    for check in after.checks:
+        if check.passed is False:
+            _print_check(check, out)
+
+
 def _print_seal(record: CaseRecord, out: TextIO) -> None:
     seal = record.seal
     print(f"Case       {record.case_id}", file=out)
@@ -178,7 +269,7 @@ def _print_seal(record: CaseRecord, out: TextIO) -> None:
     print(f"Received   {_utc(seal.received_at)}", file=out)
     if seal.timestamp_status is TimestampStatus.GRANTED:
         print(f"Timestamp  GRANTED by {seal.tsa_url} at "
-              f"{_utc(seal.timestamp_gen_time)} (stored, not yet checked: #11)", file=out)
+              f"{_utc(seal.timestamp_gen_time)} (checked on arrival; re-checked by verify)", file=out)
     else:
         print("Timestamp  PENDING (retry later: python -m backend.cli retry-timestamps)",
               file=out)
@@ -195,4 +286,4 @@ def _print_finding(finding: Finding, out: TextIO) -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(timestamper=make_timestamper(CONFIG)))

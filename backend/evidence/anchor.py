@@ -41,7 +41,7 @@ from datetime import datetime, timezone
 
 from backend.evidence.custody import CustodyEvent
 from backend.evidence.timestamp import TimestampInvalidError, TokenVerifier
-from backend.evidence.tsa_client import Timestamper, TsaUnavailableError
+from backend.evidence.tsa_client import Timestamper
 from backend.models import ChainAnchor, CheckResult, CustodyEntry, TimestampStatus
 
 CHECK_NAME = "chain_head_anchor"
@@ -59,7 +59,7 @@ def take_anchor(
         return anchor
     try:
         token, gen_time = timestamper(head.entry_hash)
-    except (TsaUnavailableError, TimestampInvalidError):
+    except Exception:  # noqa: BLE001 — TSA down, bad reply, anything: PENDING, never faked
         return anchor
     return ChainAnchor(anchor.case_id, anchor.head_index, anchor.head_hash, anchor.anchored_at,
                        TimestampStatus.GRANTED, token, gen_time, tsa_url)

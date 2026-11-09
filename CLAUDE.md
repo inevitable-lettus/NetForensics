@@ -176,8 +176,10 @@ cd frontend && npm install && npm run dev
 # CLI (no server; same intake as an upload; --store DIR for a throwaway store)
 python -m backend.cli seal <pcap>          # seal + store a case; print digests and timestamp status
 python -m backend.cli analyze <pcap>       # same, plus every finding with its evidence line
-python -m backend.cli retry-timestamps     # retry PENDING seals (needs the #11 timestamper; exit 2 while any stay PENDING)
-# verify / tamper-demo: listed, not built yet (needs #10/#11/#12), exit 3
+python -m backend.cli verify <case-id>     # re-check a case; exit 0 INTACT, 1 ALTERED (or error), 2 INCOMPLETE
+python -m backend.cli tamper-demo <pcap>   # throwaway store: seal, verify, flip one stored byte, verify again
+python -m backend.cli retry-timestamps     # retry PENDING seals (exit 2 while any stay PENDING)
+# --offline (before the command) never contacts the TSA: timestamps and anchors stay PENDING
 ```
 
 External system dep: **tshark** (Wireshark) for the PyShark parse path — `brew
