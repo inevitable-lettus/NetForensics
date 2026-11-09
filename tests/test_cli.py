@@ -243,7 +243,7 @@ def test_verify_records_itself_and_reanchors(tmp_path: Path):
 def test_verify_unknown_case_is_one_error_line(tmp_path: Path, case_id: str, capsys):
     code, _ = _run(tmp_path / "store", "verify", case_id)
     err = capsys.readouterr().err
-    assert code == EXIT_ERROR and err.startswith("error: ") and err.count("\n") == 1
+    assert code == EXIT_ERROR and err == f"error: no case with id {case_id}\n"
 
 
 def test_tamper_demo_catches_the_flip_offline_and_leaves_the_source_alone(tmp_path: Path):

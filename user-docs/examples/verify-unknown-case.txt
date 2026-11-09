@@ -1,3 +1,3 @@
 $ python -m backend.cli --offline verify <case-id>
-error: <case-id>
+error: no case with id <case-id>
 [exit code 1]
