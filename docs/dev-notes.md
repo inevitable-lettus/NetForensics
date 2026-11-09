@@ -26,6 +26,8 @@ own code or plain arithmetic.
 12. [Not built yet](#12-not-built-yet)
 13. [JA3 fingerprinting (approved design, not built)](#13-ja3-fingerprinting-approved-design-not-built)
 14. [Decisions log](#14-decisions-log)
+15. [Case verification and chain-head anchoring](#15-case-verification-and-chain-head-anchoring-issue-12)
+16. [verify and tamper-demo on the command line](#16-verify-and-tamper-demo-on-the-command-line-issue-4)
 
 ## Words used throughout
 
@@ -310,7 +312,7 @@ the trusted timestamp (proving *when*) comes later, and until then the status is
   party.
 - The append-only database blocks edits through normal SQL but not someone with write access
   to the file; the custody chain and its timestamped head close that gap (sections 10, 12).
-- Hash-checking on re-open (verification) is not built; today the seal is only written.
+- Re-hashing on re-open is `verify` (sections 15, 16).
 
 ---
 
@@ -421,7 +423,7 @@ or signature is refused; only the reply's spare CA copy and 11 label bytes can c
 - `rfc3161-client` up to 1.0.8 trusts certificates carried inside a reply, so we pin the TSA
   certificate itself (1.0.9 fixes this; the pin stays).
 - Revocation is not checked; one pinned certificate (renewed Feb 2026), so older tokens fail.
-- Uploads can wait up to 5 s on a slow TSA. The CLI passes no timestamper yet.
+- Uploads can wait up to 5 s on a slow TSA (the CLI too, unless `--offline`).
 - Deleting a token *and* resetting to PENDING looks like "never stamped": closed by a
   custody entry on grant (#12), which also re-checks tokens during verification.
 - Redirects are not followed (a 307 counts as "unavailable"); the TSA URL is fixed config.
@@ -476,7 +478,7 @@ To hide the edit they must rewrite every later entry too. `G` can be reproduced 
 
 ## 11. The command-line tool
 
-_Issue #4, part 1 (`seal`, `analyze`, `retry-timestamps`)._
+_Issue #4, part 1 (`seal`, `analyze`, `retry-timestamps`); part 2 (`verify`, `tamper-demo`) is section 16._
 
 **What it does.** Runs the evidence layer from a terminal, no web app:
 `python -m backend.cli [--store DIR] <command>` (`--store DIR` keeps blobs and database
@@ -487,12 +489,12 @@ under `DIR` instead of `evidence_store/`).
   `analyze` also prints every finding with its evidence line. Both analyse, because a
   stored case cannot get findings added later.
 - `retry-timestamps`: retries PENDING seals (section 9).
-- `verify`, `tamper-demo`: listed, but say "not built yet" until #12.
+- `verify`, `tamper-demo`: section 16.
 
 **Key concept: the exit code**, a number a program returns when it ends, read by scripts
 instead of the text. 0 = success, 1 = error (one `error:` line), 2 = seals still PENDING
-after `retry-timestamps` (or a mistyped command), 3 = not built yet. `verify` will use
-0 = INTACT, 1 = ALTERED, 2 = INCOMPLETE. `--help` prints this table.
+after `retry-timestamps` (or a mistyped command). `verify` uses 0 = INTACT, 1 = ALTERED,
+2 = INCOMPLETE (section 16). `--help` prints this table.
 
 **Example.** `analyze` on the 12-packet test capture (one connection every 60 s):
 
@@ -508,9 +510,9 @@ Flows      12
 spread is 0 and the coefficient of variation is 0 ÷ 60 = 0.000, under the 0.1 cutoff
 (section 4). Exit code 0.
 
-**Limits.** No `verify` / `tamper-demo` yet (needs #12). The CLI passes no timestamper yet,
-so seals stay PENDING from the CLI. Same 512 MiB limit as uploads. No custody entry is
-written at intake yet. Plain text only, no colour.
+**Limits.** Same 512 MiB limit as uploads. Run as a program the CLI asks FreeTSA for a
+timestamp; `--offline` (before the command) never does, and seals stay PENDING. Plain text
+only, no colour.
 
 ---
 
@@ -519,11 +521,8 @@ written at intake yet. Plain text only, no colour.
 Listed so nobody mistakes a plan for a feature. Each gets its own section above when it
 lands.
 
-- **Custody log wired into uploads:** the chain logic exists (section 10) but the API does
-  not append entries yet.
-- **Case verification and the tamper demo:** re-hash the stored file, compare to the seal,
-  walk the chain. The 10-second flip-one-byte demonstration. The CLI already lists
-  `verify` and `tamper-demo` (section 11).
+- **Verification in the API, UI and PDF:** the CLI has it (section 16); #5 and #6 add it
+  to the web app and the report. Report export should also anchor the chain head.
 - **JA3 fingerprinting (4th detector):** deferred; approved design in section 13.
 
 ---
@@ -625,3 +624,33 @@ alternatives:
 - TSA down: the anchor is stored PENDING with no token and the verdict is INCOMPLETE. A
   PENDING anchor is never upgraded; the next anchor supersedes it.
 - Verification only reads; the caller appends the `verify` event it returns.
+
+---
+
+## 16. verify and tamper-demo on the command line (issue #4)
+
+**What it does.** Every upload now starts a custody chain: an `ingest` entry, an `analyze`
+entry, then an anchor of the head (section 15).
+- `verify <case-id>` prints each check as `[PASS]`, `[FAIL]` or `[NOT RUN]` with its
+  evidence sentence, then the verdict. If the case is not ALTERED it adds a `verify` entry,
+  anchors the new head and prints that anchor; keep a copy of that line somewhere else.
+- `tamper-demo <pcap>` makes a throwaway store, seals a copy, verifies, flips one bit of
+  the stored copy, verifies again and prints both results side by side. Your file is only
+  read and the throwaway store is deleted.
+
+**Key concept: exit codes for verify.** 0 = INTACT (everything matches and a timestamp
+authority vouches for it), 1 = ALTERED (at least one check failed; also used for errors,
+which print an `error:` line), 2 = INCOMPLETE (nothing failed, but a timestamp is PENDING).
+
+**Example.** Offline tamper demo on the 12-packet capture (864 bytes): before, digests and
+chain PASS, timestamp and anchor NOT RUN, so INCOMPLETE; bit flipped at byte 432; after,
+`pcap_digests` FAIL with BLAKE3 sealed `18cbdf6a...` vs measured `28649910...`, so ALTERED.
+Takes about 0.1 s.
+
+**Why an ALTERED case is not written to.** If the end of the chain was cut, a new entry
+would land in a freed slot: the next verify would then say "rewritten" instead of "removed
+from the end", and the damaged head would get a fresh anchor. So `verify` leaves an ALTERED
+case exactly as found and says so on stderr.
+
+**Limits.** The fact that someone ran verify on an ALTERED case is not in the chain (it
+prints to the terminal only). Exit 1 means ALTERED or error; read stderr to tell them apart.

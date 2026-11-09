@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import re
+import sqlite3
 import subprocess
 import sys
 from dataclasses import replace
@@ -263,3 +264,26 @@ def test_tamper_demo_with_a_tsa_goes_from_intact_to_altered(tmp_path: Path):
     code, output = _run(tmp_path / "unused", "tamper-demo", str(_beacon_pcap(tmp_path)), **FAKE_TSA)
     assert code == EXIT_OK
     assert re.search(r"^verdict\s+INTACT\s+ALTERED$", output, re.M)
+
+
+def _cut_custody_tail(store: Path, case_id: str, keep: int) -> None:
+    """What someone with write access to the database file could do."""
+    with sqlite3.connect(store / "netforensics.sqlite") as connection:
+        connection.execute("DROP TRIGGER custody_entries_no_delete")
+        connection.execute("DELETE FROM custody_entries WHERE case_id = ? AND idx >= ?",
+                           (case_id, keep))
+
+
+def test_verify_of_a_tail_cut_case_prints_the_report_and_writes_nothing(tmp_path: Path, capsys):
+    store, case_id = _sealed(tmp_path)
+    _run(store, "verify", case_id)  # chain: ingest, analyze, anchor, verify, anchor(3)
+    _cut_custody_tail(store, case_id, keep=3)
+    log = SqliteCustodyLog(store / "netforensics.sqlite")
+    for _ in range(2):  # the second run must give the same diagnosis
+        code, output = _run(store, "verify", case_id)
+        assert code == EXIT_ERROR
+        assert "[FAIL] chain_head_anchor" in output and "removed from the end" in output
+        assert "Verdict    ALTERED" in output
+        assert len(log.entries(case_id)) == 3
+        assert len(SqliteAnchorLog(store / "netforensics.sqlite").anchors(case_id)) == 2
+        assert "nothing was written to its custody chain" in capsys.readouterr().err

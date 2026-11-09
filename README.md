@@ -105,9 +105,8 @@ python -m backend.cli retry-timestamps        # retry seals still waiting for a 
 # add --offline before the command to never contact the timestamp authority
 ```
 
-`verify` and `tamper-demo` are listed but not built yet: they need the custody chain,
-timestamp check and case verification. Exit code 0 means success and 1 an error,
-explained in one line.
+Exit codes: 0 success, 1 error (explained in one line). `verify` uses 0 = INTACT,
+1 = ALTERED, 2 = INCOMPLETE (nothing failed, but a timestamp is still pending).
 
 `tshark` (Wireshark) is an external dependency for the PyShark parse path —
 `brew install wireshark` (macOS) or your platform's package manager. Not a pip

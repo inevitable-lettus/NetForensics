@@ -165,12 +165,13 @@ def cmd_retry_timestamps(args: argparse.Namespace, config: Config,
 def cmd_verify(args: argparse.Namespace, config: Config, timestamper: Timestamper | None,
                out: TextIO) -> int:
     storage = Storage.open(config.evidence)
-    report = _verify(storage, args.case_id, config, timestamper, args.verify_token)
-    _print_report(report, out)
-    latest = storage.anchors.anchors(args.case_id)[-1]
-    print(f"Anchor     entry {latest.head_index}, hash {latest.head_hash} "
-          f"({latest.timestamp_status.value.upper()}); keep a copy outside this system: "
-          "a later verify must still find this entry.", file=out)
+    report = _verify(storage, args.case_id, config, args.verify_token)
+    _print_report(report, out)  # before any bookkeeping, so nothing can hide it
+    if _record(storage, args.case_id, report, timestamper, config):
+        latest = storage.anchors.anchors(args.case_id)[-1]
+        print(f"Anchor     entry {latest.head_index}, hash {latest.head_hash} "
+              f"({latest.timestamp_status.value.upper()}); keep a copy outside this system: "
+              "a later verify must still find this entry.", file=out)
     return _VERDICT_EXIT[report.verdict]
 
 
@@ -185,11 +186,13 @@ def cmd_tamper_demo(args: argparse.Namespace, config: Config, timestamper: Times
         print(f"Throwaway store {scratch} (deleted afterwards); {args.pcap} is only read.",
               file=out)
         _print_seal(record, out)
-        before = _verify(storage, record.case_id, config, timestamper, args.verify_token)
+        before = _verify(storage, record.case_id, config, args.verify_token)
+        _record(storage, record.case_id, before, timestamper, config)
         blob = storage.evidence.path_for(record.seal.sha256_hash)
         offset = _flip_one_byte(blob)
         print(f"\nFlipped one bit of byte {offset} of the stored copy.", file=out)
-        after = _verify(storage, record.case_id, config, timestamper, args.verify_token)
+        after = _verify(storage, record.case_id, config, args.verify_token)
+        _record(storage, record.case_id, after, timestamper, config)
         _print_side_by_side(before, after, out)
     return EXIT_OK if after.verdict is Verdict.ALTERED else EXIT_ERROR
 
@@ -212,9 +215,9 @@ def _intake(pcap: Path, config: Config, timestamper: Timestamper | None) -> Case
     return seal_and_store(storage, case_id, staged, config, timestamper)
 
 
-def _verify(storage: Storage, case_id: str, config: Config, timestamper: Timestamper | None,
+def _verify(storage: Storage, case_id: str, config: Config,
             verify_token: TokenVerifier | None) -> VerificationReport:
-    """Verify, then record the verification in the custody chain and anchor its head."""
+    """Read-only: load the case and run every check."""
     record = storage.cases.load(case_id)
     try:
         blob = storage.evidence.path_for(record.seal.sha256_hash)
@@ -222,9 +225,28 @@ def _verify(storage: Storage, case_id: str, config: Config, timestamper: Timesta
         blob = Path(config.evidence.evidence_store_dir) / "blobs" / record.seal.sha256_hash
     report = verify_case(record.seal, storage.custody.entries(case_id),
                          storage.anchors.anchors(case_id), blob, case_id, config, verify_token)
-    append_custody(storage, record.seal, [verification_event(case_id, report)], timestamper,
-                   config)
     return report
+
+
+def _record(storage: Storage, case_id: str, report: VerificationReport,
+            timestamper: Timestamper | None, config: Config) -> bool:
+    """Append the verify event and anchor the new head, unless the case is ALTERED:
+    writing onto a damaged chain would fill the slots of removed entries, change the
+    diagnosis of the next verify and anchor a head already known to be bad. The case
+    is left exactly as found for investigation. A bookkeeping failure is a warning on
+    stderr, never a crash: the report has already been printed. True if recorded."""
+    if report.verdict is Verdict.ALTERED:
+        print("note: case is ALTERED; nothing was written to its custody chain, so it "
+              "stays exactly as found.", file=sys.stderr)
+        return False
+    try:
+        append_custody(storage, storage.cases.load(case_id).seal,
+                       [verification_event(case_id, report)], timestamper, config)
+    except (OSError, ValueError, LookupError, sqlite3.Error) as error:
+        print(f"warning: verification not recorded in the custody chain: {error}",
+              file=sys.stderr)
+        return False
+    return True
 
 
 def _flip_one_byte(blob: Path) -> int:
