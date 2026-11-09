@@ -24,7 +24,7 @@ call, 2026-09-19). The React frontend is kept but is not part of v1. Test suite 
   (`NetForensics_Flow_Diagram.pdf`) authored.
 - Context docs created: `CLAUDE.md`, `docs/architecture.md`, `docs/logic.md`,
   `docs/handoff.md` (this file). — 2026-06-21
-- Build roadmap created: [`../plan.md`](../plan.md) — phased, with `[CORE]`/`[INDEP]`
+- Build roadmap created: [`../plan.md`](plan.md) — phased, with `[CORE]`/`[INDEP]`
   ownership tags. — 2026-06-23
 - **Phase 0 scaffold** — repo layout, shared models, detector interface, config,
   test harness, dep-check. — 2026-06-25
@@ -55,7 +55,7 @@ call, 2026-09-19). The React frontend is kept but is not part of v1. Test suite 
 
 ## Next up (Phase 1 — Vertical slice)
 
-Per [`../plan.md`](../plan.md) file/phase order; ownership tags superseded — see
+Per [`../plan.md`](plan.md) file/phase order; ownership tags superseded — see
 "Collaboration model" above: Phase 3 steps 3-5 are built by Jim, one PR per step with
 a teaching explanation, human review before merge; plumbing is written directly.
 
@@ -126,7 +126,7 @@ a teaching explanation, human review before merge; plumbing is written directly.
 
 ## Roadmap snapshot
 
-Authoritative roadmap is [`../plan.md`](../plan.md). Phases: 0 Foundation & contracts →
+Authoritative roadmap is [`../plan.md`](plan.md). Phases: 0 Foundation & contracts →
 1 Vertical slice (upload→seal→DNS-exfil→PDF) → 2 Parsing depth & remaining detectors →
 3 Evidence-integrity layer (the differentiator) → 4 Report, polish & demo.
 
@@ -364,7 +364,7 @@ language, no code) → user researches + writes it → user asks for help only i
   Verified: full `requirements.txt` installs on Python 3.14.3 in `.venv/`. tshark
   confirmed MISSING (risk #4). Filled CLAUDE.md Commands. Repo on `main`, NOT committed —
   awaiting user. Next: Phase 1 vertical slice.
-- **2026-06-23** — Created [`../plan.md`](../plan.md): phased build roadmap with
+- **2026-06-23** — Created [`../plan.md`](plan.md): phased build roadmap with
   `[CORE]`/`[INDEP]` ownership tags. Strategy locked: user owns all algorithmic code
   (parsing, detectors, evidence logic) with "Claude scaffolds stub+test → user
   implements"; Claude builds plumbing solo; vertical-slice-first build order. Added
