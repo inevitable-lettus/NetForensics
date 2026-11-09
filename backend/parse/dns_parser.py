@@ -24,10 +24,11 @@ _QUESTION_TAIL_LEN = 4  # QTYPE + QCLASS after each name
 
 
 def _questions_lossless(payload: bytes) -> list[str]:
-    """Read question names straight from the DNS wire format, decoding label bytes with
-    backslash escapes instead of failing. Fallback for names dpkt rejects because a
-    label is not valid UTF-8 (e.g. iodine's Latin-1 padding): the label is kept, with
-    each bad byte shown as \\xNN, so the detector still measures it.
+    """Read question names straight from the DNS wire format instead of failing.
+    Fallback for names dpkt rejects because a label is not valid UTF-8 (e.g. iodine's
+    Latin-1 padding). Each bad byte is kept as a lone surrogate (`surrogateescape`), so
+    `name.encode("utf-8", "surrogateescape")` gives the raw label bytes back exactly;
+    `_build_dns_flow` measures those bytes and shows the label with `\\xNN` escapes.
 
     Questions only, uncompressed only: a compression pointer or a truncated packet ends
     the read and returns the names parsed so far."""
@@ -49,7 +50,7 @@ def _questions_lossless(payload: bytes) -> list[str]:
                 return names
             labels.append(payload[offset : offset + length])
             offset += length
-        names.append(b".".join(labels).decode("utf-8", errors="backslashreplace"))
+        names.append(b".".join(labels).decode("utf-8", errors="surrogateescape"))
         offset += _QUESTION_TAIL_LEN
     return names
 
@@ -131,13 +132,17 @@ def _build_dns_flow(
     """
     timestamps = [ts for ts, _, _ in entries]
     dst_ip = entries[0][1]
-    subdomains = tuple(sub for _, _, sub in entries if sub)  # drop apex queries ("")
+    raw = [sub.encode("utf-8", "surrogateescape") for _, _, sub in entries if sub]  # drop apex ""
+    # Shown with \xNN escapes so evidence stays printable; measured on the raw bytes.
+    subdomains = tuple(label.decode("utf-8", "backslashreplace") for label in raw)
+    longest = subdomains[max(range(len(raw)), key=lambda i: len(raw[i]))] if raw else ""
     dns = DnsFeatures(
         parent_domain=parent,
         subdomains=subdomains,
         query_count=len(entries),
-        max_subdomain_entropy=max((shannon_entropy(s) for s in subdomains), default=0.0),
-        max_subdomain_length=max((len(s) for s in subdomains), default=0),
+        max_subdomain_entropy=max((shannon_entropy(label) for label in raw), default=0.0),
+        max_subdomain_length=max((len(label) for label in raw), default=0),
+        longest_subdomain=longest,
     )
     return Flow(
         src_ip=src_ip,

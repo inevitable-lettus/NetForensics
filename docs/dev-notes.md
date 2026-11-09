@@ -147,16 +147,22 @@ least 4.2 bits/char, met; benign baseline about 2.5); subdomain length 40 chars 
 least 30 chars, met); query rate 400.0 queries per 60 s (cutoff: at least 50 queries per
 60 s, met; scaled to a 60 s window from 200 queries in total). Meaning: …"
 
-**Names with non-text bytes (fix for #16).** A DNS label can hold any byte, but the `dpkt`
-library only accepts valid UTF-8 text and used to crash the whole run on a bad byte. Now
-`_questions_lossless` re-reads the name by hand and writes each bad byte as `\xNN`
-(`0xE4` becomes `\xe4`), so the label stays visible to the detector.
-*Example:* the 4 bytes `E4 E5 E6 E7` become the 16 characters `\xe4\xe5\xe6\xe7`; entropy
-of the escaped text is 2.5 (counts 4, 4, 4, 1, 1, 1, 1 of 16).
-*Limit:* escaping makes names look longer and **less random** than they are. In
-`dns-iodine.pcap` the longest label is 55 raw bytes but 193 characters, with entropy 3.43
-escaped versus 5.74 per raw byte. So this can only cause a miss, never a false alarm.
-Measuring raw bytes instead is tracked in issue #32.
+**Names with non-text bytes (fixes for #16 and #32).** A DNS label can hold any byte, but the
+`dpkt` library only accepts valid UTF-8 text and used to crash the whole run on a bad byte.
+Now `_questions_lossless` re-reads the name by hand and keeps each bad byte as it is on the
+wire (Python's `surrogateescape` can hand the exact bytes back). `_build_dns_flow` then
+**measures the raw bytes**: entropy is bits per byte and length is a byte count. For the
+evidence text the label is still printed with escapes (`0xE4` shown as `\xe4`), so it stays
+readable. Plain ASCII text measures exactly as before, since one character is one byte.
+*Example:* 32 different bytes `80 81 ... 9F` have raw entropy `log2(32)` = **5.0** and length
+**32**, above the 4.2 cutoff and the 30 minimum. Written as escapes they were 128 characters
+with entropy about 3.1 (the `\`, `x` and hex digits repeat), so the tunnel was missed.
+On `dns-iodine.pcap` the detector now sees entropy 5.74 over a 59-byte subdomain (it was 3.43
+on the escaped text) and still reports `HIGH`.
+*Limits:* the cutoffs (4.2, 30) are unchanged and were tuned on text. Bytes can score up to 8
+bits, so a binary label reaches 4.2 more easily than a text one; tuning is Phase 4 work.
+The evidence sentence still says "bits/char" and "chars"; for non-text labels read them as
+bits per byte and bytes. Compressed names (rare in questions) end the hand-read early.
 
 **Limits.**
 - Short names never reach 4.2: entropy tops out at `log2(length)`, and `log2(19)` = 4.25, so

@@ -3,8 +3,8 @@ from collections import Counter
 import math
 
 
-def shannon_entropy(text: str) -> float:
-    """Returning bits per char"""
+def shannon_entropy(text: str | bytes) -> float:
+    """Bits per symbol: per character for text, per byte for bytes."""
     if not text:
         return 0.0
     counts = Counter(text)

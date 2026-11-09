@@ -25,8 +25,9 @@ class DnsFeatures:
     parent_domain: str
     subdomains: tuple[str, ...]
     query_count: int
-    max_subdomain_entropy: float
-    max_subdomain_length: int
+    max_subdomain_entropy: float  # bits per raw byte of the most random label
+    max_subdomain_length: int  # raw bytes of the longest label
+    longest_subdomain: str = ""  # that label as shown in evidence (bad bytes as \xNN)
 
 
 @dataclass(frozen=True)
