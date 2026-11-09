@@ -75,7 +75,7 @@ Actively built in public increments, not finished. Current state:
 - FastAPI upload/case/report API and PDF report (`backend/api/`, `backend/report/`)
 - React + TypeScript frontend (`frontend/`): kept in the repo, but not part of v1; the
   command line is the v1 interface
-- 362 passing tests across all of the above (live-network tests are opt-in)
+- 363 passing tests across all of the above (live-network tests are opt-in)
 
 **Not yet built**
 - JA3 fingerprinting detector (4th of four, deliberately deferred)
