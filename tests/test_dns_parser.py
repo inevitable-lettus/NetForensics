@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -228,3 +229,18 @@ def test_plain_text_labels_measure_the_same_as_before(tmp_pcap: Path):
     (flow,) = parse_dns_flows(str(tmp_pcap))
     assert flow.features.dns.max_subdomain_length == 4
     assert math.isclose(flow.features.dns.max_subdomain_entropy, 2.0)
+
+
+def test_bad_byte_in_the_parent_domain_stays_storable(tmp_pcap: Path, config):
+    # The parent (last two labels) holds a non-UTF-8 byte too. It must reach the flow,
+    # the finding and SQLite as printable text, not as a lone surrogate.
+    frame = _dense_binary_packet()
+    assert frame.count(b"\x03com") == 1
+    write_minimal_pcap(tmp_pcap, [frame.replace(b"\x03com", b"\x03c\xe4m")])
+    (flow,) = parse_dns_flows(str(tmp_pcap))
+    assert flow.features.dns.parent_domain == "evil.c\\xe4m"
+    (finding,) = DnsExfilDetector(config).run([flow])
+    finding.what.encode("utf-8")  # raises on a lone surrogate
+    with sqlite3.connect(":memory:") as db:
+        db.execute("CREATE TABLE t (what TEXT)")
+        db.execute("INSERT INTO t VALUES (?)", (finding.what,))

@@ -55,6 +55,13 @@ def _questions_lossless(payload: bytes) -> list[str]:
     return names
 
 
+def _printable(text: str) -> str:
+    """Show a name that may hold surrogate-kept bytes with `\\xNN` escapes. The surrogates
+    live only inside the parser: anything stored, printed or used as a key goes through
+    this first, since a lone surrogate cannot be encoded (SQLite, stdout)."""
+    return text.encode("utf-8", "surrogateescape").decode("utf-8", "backslashreplace")
+
+
 def _query_names(payload: bytes) -> list[str]:
     """Question names in one DNS payload; [] when it is not parseable DNS at all."""
     try:
@@ -116,6 +123,7 @@ def _group_dns_queries(
     groups: dict[tuple[str, str], list[tuple[datetime, str, str]]] = {}
     for timestamp, src_ip, dst_ip, qname in records:
         parent, subdomain = _split_domain(qname)
+        parent = _printable(parent)
         groups.setdefault((src_ip, parent), []).append((timestamp, dst_ip, subdomain))
     return groups
 
@@ -134,7 +142,7 @@ def _build_dns_flow(
     dst_ip = entries[0][1]
     raw = [sub.encode("utf-8", "surrogateescape") for _, _, sub in entries if sub]  # drop apex ""
     # Shown with \xNN escapes so evidence stays printable; measured on the raw bytes.
-    subdomains = tuple(label.decode("utf-8", "backslashreplace") for label in raw)
+    subdomains = tuple(_printable(sub) for _, _, sub in entries if sub)
     longest = subdomains[max(range(len(raw)), key=lambda i: len(raw[i]))] if raw else ""
     dns = DnsFeatures(
         parent_domain=parent,
