@@ -73,14 +73,12 @@ Actively built in public increments, not finished. Current state:
 - Command line: `seal`, `analyze`, `verify`, `tamper-demo`, `retry-timestamps`
   (`backend/cli.py`)
 - FastAPI upload/case/report API and PDF report (`backend/api/`, `backend/report/`)
-- React + TypeScript frontend (`frontend/`): kept in the repo, but not part of v1; the
-  command line is the v1 interface
-- 363 passing tests across all of the above (live-network tests are opt-in)
+- Web page (`frontend/`, React + TypeScript): upload a capture, see its seal and
+  findings, verify the case (all five checks) and run the tamper test on a throwaway copy
+- 372 passing tests across all of the above (live-network tests are opt-in)
 
 **Not yet built**
 - JA3 fingerprinting detector (4th of four, deliberately deferred)
-- A verify endpoint in the API and a tamper-test control in the frontend (the command
-  line has both)
 
 See [`docs/handoff.md`](docs/handoff.md) for the live, detailed build log —
 what's done, what's next, and open decisions — updated every working session.
@@ -118,11 +116,12 @@ python -m backend.cli retry-timestamps        # retry seals still waiting for a 
 Exit codes: 0 success, 1 error (explained in one line). `verify` uses 0 = INTACT,
 1 = ALTERED, 2 = INCOMPLETE (nothing failed, but a timestamp is still pending).
 
-Running the API and the (optional) frontend:
+Running the API and the web page:
 
 ```bash
 uvicorn backend.api.app:app --reload          # API on :8000; cases stored under evidence_store/
 cd frontend && npm install && npm run dev     # Vite dev server on :5173, proxies /api to :8000
+                                              # (NF_API_URL=http://127.0.0.1:PORT for another port)
 ```
 
 `tshark` (Wireshark) is an external dependency for the PyShark parse path —
@@ -145,7 +144,7 @@ backend/
 ├── evidence/          seal, custody chain, RFC 3161 timestamps, verification, anchoring
 ├── db/                append-only SQLite store, content-addressed pcap store
 └── report/            PDF report
-frontend/              React + Vite + TypeScript UI (kept; not part of v1)
+frontend/              React + Vite + TypeScript web page: upload, findings, verify, tamper test
 docs/
 ├── architecture.md    system structure, pipeline, stack, dependency risks
 ├── logic.md           detector formulas, thresholds, evidence-layer mechanics

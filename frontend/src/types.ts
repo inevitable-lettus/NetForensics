@@ -31,3 +31,36 @@ export interface CaseRecord {
   findings: Finding[];
   flow_count: number;
 }
+
+// Verification (backend/models.py Verdict, CheckResult, VerificationReport).
+export type Verdict = "intact" | "altered" | "incomplete";
+
+export interface CheckResult {
+  name: string;
+  /** null: the check could not run yet (e.g. a PENDING timestamp). */
+  passed: boolean | null;
+  evidence: string;
+}
+
+export interface VerificationReport {
+  verdict: Verdict;
+  checks: CheckResult[];
+}
+
+/** POST /api/cases/{id}/verify (backend/api/app.py). */
+export interface VerifyResponse extends VerificationReport {
+  recorded: boolean;
+  anchor: {
+    head_index: number;
+    head_hash: string;
+    timestamp_status: TimestampStatus;
+    timestamp_gen_time: string | null;
+  } | null;
+}
+
+/** POST /api/cases/{id}/tamper-test (backend/case_verification.py TamperTest). */
+export interface TamperTest {
+  before: VerificationReport;
+  after: VerificationReport;
+  flipped_offset: number;
+}

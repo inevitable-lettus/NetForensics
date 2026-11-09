@@ -67,5 +67,5 @@ full list.
 
 !!! note "Status"
     NetForensics is a personal learning project built in public increments. The command
-    line is the supported interface. The repository also contains a web API and a React
-    frontend; they are kept but are not part of v1 and are not documented here.
+    line is the supported interface. The repository also contains a web API and a web page
+    (upload, findings, verification, tamper test); this site documents the command line.

@@ -73,7 +73,7 @@ NetForensics/
 │   ├── report/            Stage 4 — PDF generation
 │   ├── db/                storage contracts (interfaces.py) + SQLite append-only cases/seals/findings/custody + content-addressed pcap store (blobs/<sha256>)
 │   ├── cli.py             command line: seal / analyze / verify / tamper-demo / retry-timestamps
-│   ├── api/               FastAPI routes: create case, get case, report PDF (a verify endpoint is not built yet)
+│   ├── api/               FastAPI routes: create case, get case, verify, tamper test, report PDF
 │   └── pipeline.py        orchestrator: seal first, then parse and detect
 ├── frontend/              React + Vite + TypeScript UI
 └── sample-pcaps/          curated demo captures (each must fire ≥1 detector)

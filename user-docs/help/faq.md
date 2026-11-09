@@ -55,8 +55,9 @@ Convert it first: `editcap -F pcap in.pcapng out.pcap`.
 
 ## What about the web interface?
 
-The repository contains a web API and a React frontend. They are kept but are not part of v1; the
-command line is the supported interface and the only one documented here.
+The repository contains a web API and a web page for uploading a capture, reading its findings,
+verifying the case and running the tamper test. Start them as the README shows. This site
+documents the command line; the web page runs the same seal, analysis and verification code.
 
 ## Where does the data live, and can I delete a case?
 

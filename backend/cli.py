@@ -28,12 +28,11 @@ from pathlib import Path
 from typing import TextIO
 
 from backend.config import CONFIG, Config
-from backend.db.evidence_store import EvidenceNotFoundError
 from backend.db.storage import Storage
 from backend.evidence.timestamp import TokenVerifier, make_timestamper
 from backend.evidence.tsa_client import RetryOutcome, Timestamper, retry_all_pending
-from backend.evidence.verify import verification_event, verify_case
-from backend.intake import append_custody, seal_and_store, stage_and_validate
+from backend.case_verification import flip_one_byte, record_verification, verify_stored
+from backend.intake import seal_and_store, stage_and_validate
 from backend.models import (
     CaseRecord,
     CheckResult,
@@ -190,7 +189,7 @@ def cmd_tamper_demo(args: argparse.Namespace, config: Config, timestamper: Times
         before = _verify(storage, record.case_id, config, args.verify_token)
         _record(storage, record.case_id, before, timestamper, config)
         blob = storage.evidence.path_for(record.seal.sha256_hash)
-        offset = _flip_one_byte(blob)
+        offset = flip_one_byte(blob)
         print(f"\nFlipped one bit of byte {offset} of the stored copy.", file=out)
         after = _verify(storage, record.case_id, config, args.verify_token)
         _record(storage, record.case_id, after, timestamper, config)
@@ -218,46 +217,23 @@ def _intake(pcap: Path, config: Config, timestamper: Timestamper | None) -> Case
 
 def _verify(storage: Storage, case_id: str, config: Config,
             verify_token: TokenVerifier | None) -> VerificationReport:
-    """Read-only: load the case and run every check."""
-    record = storage.cases.load(case_id)
-    try:
-        blob = storage.evidence.path_for(record.seal.sha256_hash)
-    except EvidenceNotFoundError:  # a missing blob is ALTERED, reported by the check
-        blob = Path(config.evidence.evidence_store_dir) / "blobs" / record.seal.sha256_hash
-    report = verify_case(record.seal, storage.custody.entries(case_id),
-                         storage.anchors.anchors(case_id), blob, case_id, config, verify_token)
-    return report
+    return verify_stored(storage, case_id, config, verify_token)
 
 
 def _record(storage: Storage, case_id: str, report: VerificationReport,
             timestamper: Timestamper | None, config: Config) -> bool:
-    """Append the verify event and anchor the new head, unless the case is ALTERED:
-    writing onto a damaged chain would fill the slots of removed entries, change the
-    diagnosis of the next verify and anchor a head already known to be bad. The case
-    is left exactly as found for investigation. A bookkeeping failure is a warning on
-    stderr, never a crash: the report has already been printed. True if recorded."""
-    if report.verdict is Verdict.ALTERED:
-        print("note: case is ALTERED; nothing was written to its custody chain, so it "
-              "stays exactly as found.", file=sys.stderr)
-        return False
+    """Record the verification (see `record_verification`). A bookkeeping failure is a
+    warning on stderr, never a crash: the report has already been printed."""
     try:
-        append_custody(storage, storage.cases.load(case_id).seal,
-                       [verification_event(case_id, report)], timestamper, config)
+        anchor = record_verification(storage, case_id, report, timestamper, config)
     except (OSError, ValueError, LookupError, sqlite3.Error) as error:
         print(f"warning: verification not recorded in the custody chain: {error}",
               file=sys.stderr)
         return False
-    return True
-
-
-def _flip_one_byte(blob: Path) -> int:
-    """Flip the low bit of the middle byte. Blobs are stored read-only; lift that first."""
-    blob.chmod(0o644)
-    data = bytearray(blob.read_bytes())
-    offset = len(data) // 2
-    data[offset] ^= 0x01
-    blob.write_bytes(bytes(data))
-    return offset
+    if anchor is None:
+        print("note: case is ALTERED; nothing was written to its custody chain, so it "
+              "stays exactly as found.", file=sys.stderr)
+    return anchor is not None
 
 
 def _print_report(report: VerificationReport, out: TextIO) -> None:
