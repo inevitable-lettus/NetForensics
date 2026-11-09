@@ -61,18 +61,32 @@ This is the real product. Make tamper-evidence *genuine*, not cosmetic.
   module docstring is the byte-exact spec.
 - **Limits (stated, not hidden):** the chain alone cannot detect removal of the *last*
   entries, and anyone with write access can recompute a rewritten chain (no secret).
-  Both are closed by anchoring the chain head with an RFC 3161 timestamp (#12).
+  Anchoring the chain head with an RFC 3161 timestamp (#12, built) detects both, unless the
+  anchor rows are deleted too; a copy of the anchor kept elsewhere closes that.
 - The log is append-only: no in-place edits, no deletes.
 
 ### Integrity verification (the headline flow)
-1. Re-hash the stored pcap with BLAKE3.
-2. Compare against the sealed hash from Stage 1.
-3. **Match** → chain intact, evidence provably unaltered.
-   **Mismatch** → flag "evidence altered / chain of custody broken."
+**Decided and built (issues #12 and #4, `backend/evidence/verify.py`).** Verification
+reads the stored case and runs five checks, always all of them:
 
-> **Live proof:** seal a pcap → analyze → then flip one byte and re-verify → the tool
-> declares the evidence tampered. This 10-second demonstration is the whole point of the
-> evidence-integrity layer.
+1. `pcap_digests`: re-hash the stored pcap (BLAKE3, SHA-256, size) and compare with the seal.
+2. `custody_chain`: recompute every entry hash, check each link, and check entry 0 against
+   the seal.
+3. `seal_binding`: entry 0 belongs to this seal (its genesis hash is recomputed from the seal).
+4. `rfc3161_timestamp`: the stored token still verifies against the pinned TSA
+   certificate and covers the sealed hash.
+5. `chain_head_anchor`: every anchored chain head still exists with the same hash, and its
+   TSA token verifies. This is what catches entries cut from the end of the chain.
+
+Verdict: any failed check gives **ALTERED**; otherwise any check not yet possible (a
+`PENDING` timestamp or anchor) gives **INCOMPLETE**; otherwise **INTACT**. INTACT means
+"matches the seal and an independent timestamp", not "admissible". Entries after the latest
+anchor rest on the chain alone; the evidence sentence says how many. An ALTERED case is
+never written to, so the damage stays exactly as found.
+
+> **Live proof:** `python -m backend.cli tamper-demo <pcap>` seals a copy in a throwaway
+> store, verifies, flips one bit of the stored copy, and verifies again: the verdict goes
+> from INCOMPLETE or INTACT to ALTERED. See [`demo-script.md`](demo-script.md).
 
 ### Honest framing
 Say "tamper-evident, designed toward admissibility", never a flat claim that the output
