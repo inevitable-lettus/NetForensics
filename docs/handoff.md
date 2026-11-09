@@ -8,15 +8,15 @@ holds where the build is, what to do next, and unresolved decisions. For the des
 
 ## Current phase
 
-**Phase 1 plumbing done (2026-09-21); Phase 3 — evidence-integrity layer next (steps
-3-8).** Upload → seal → parse → detect → JSON case → PDF works end to end (API + React
-page). Three of four detectors done
-(DNS exfil, C2 beacon, port scan). JA3 fingerprinting **deliberately deferred** (user
-call, 2026-09-19) — evidence layer gets built out fully first. Test suite green
-(**92 passed**). Plan:
-[`plan.md`](plan.md) "Phase 3 — step plan (reconstructed 2026-10-20)" — dual-hash seal →
-RFC 3161 timestamp (PENDING + retry offline) → hash-chained custody → verify, persisted
-append-only in SQLite, driven by a CLI tamper demo.
+**Phase 3 — evidence-integrity layer built (2026-11-09); docs site next.** Seal (dual
+hash) → RFC 3161 timestamp (PENDING + retry offline) → hash-chained custody → verify with
+chain-head anchoring, persisted append-only in SQLite and driven by the CLI
+(`seal`, `analyze`, `verify`, `tamper-demo`, `retry-timestamps`). Three of four detectors
+done (DNS exfil, C2 beacon, port scan). JA3 fingerprinting **deliberately deferred** (user
+call, 2026-09-19). The React frontend is kept but is not part of v1. Test suite green
+(**362 passed**). Walkthrough: [`demo-script.md`](demo-script.md). Plan:
+[`plan.md`](plan.md) "Phase 3 — step plan". Remaining: the user documentation site
+(issues #24-#31), a verify endpoint and tamper control for the API/frontend, JA3.
 
 ## Done so far
 
@@ -96,10 +96,10 @@ a teaching explanation, human review before merge; plumbing is written directly.
       `hash_file` → `FileDigests` (shared with verify), `seal_pcap` → PENDING seal.
 - [x] Step 3 `[CORE]` hash-chained custody (`backend/evidence/custody.py`, issue #10) —
       built directly by Jim per the 2026-10-20 human decision; merged (#19).
-- [ ] Step 4 `[CORE]` RFC 3161 timestamp request/verify (`timestamp.py`). Built on
-  `feat/timestamp-verify` (#11): request builder, pinned-certificate reply check,
-  timestamper wired into the web app; waiting for the human's review.
-- [ ] Step 5 `[CORE]` case verification + chain-head anchoring (`verify.py`).
+- [x] Step 4 `[CORE]` RFC 3161 timestamp request/verify (`timestamp.py`, `tsa_client.py`,
+      issue #11): request builder, pinned-certificate reply check, PENDING and retry.
+- [x] Step 5 `[CORE]` case verification + chain-head anchoring (`verify.py`, `anchor.py`,
+      issue #12, PR #39).
 - [x] Step 6 SQLite append-only store + content-addressed evidence store
       (`backend/db/`, issue #2, PR #13): `interfaces.py` (Protocols `CaseRepository`,
       `CustodyLog`, `EvidenceStore` — what the core plugs into), `sqlite_db.py`
@@ -107,10 +107,10 @@ a teaching explanation, human review before merge; plumbing is written directly.
       (positional append check only — hash links are core's job), `evidence_store.py`
       (`staging/<case>/` → `blobs/<sha256>`, read-only), `storage.py` factory.
       Replaces the interim JSON `case_store.py`.
-- [ ] Step 7 CLI incl. `tamper-demo`. First part (issue #4): `seal`, `analyze`,
-  `retry-timestamps` in `backend/cli.py`, sharing `backend/intake.py` with the API.
-  `verify` / `tamper-demo` are stubs (exit 3) until #10/#11/#12 land.
-- [ ] Step 8 docs (logic.md mechanism, risks #1/#5 resolved, CLAUDE.md commands).
+- [x] Step 7 CLI incl. `verify` and `tamper-demo` (issue #4, PRs #23 and #40) in
+      `backend/cli.py`, sharing `backend/intake.py` with the API.
+- [x] Step 8 docs (README status, logic.md mechanism, risks #1/#5 resolved, CLAUDE.md
+      commands, `demo-script.md`; issue #8).
 
 ### Phase 0 — done
 
@@ -173,7 +173,7 @@ language, no code) → user researches + writes it → user asks for help only i
 
 | # | Issue | Why it matters | Status |
 |---|---|---|---|
-| 1 | **RFC 3161 TSA choice + offline fallback** | A live TSA needs internet and can fail, which would kill the headline feature. Pick a TSA (e.g. freeTSA.org) and cache/fallback so it never hard-fails. | DECIDED, not built: `config.py` uses freetsa.org; offline keeps the seal `PENDING` and retries, never faked. Built in Phase 3 step 4. |
+| 1 | **RFC 3161 TSA choice + offline fallback** | A live TSA needs internet and can fail, which would kill the headline feature. Pick a TSA (e.g. freeTSA.org) and cache/fallback so it never hard-fails. | RESOLVED (#11): `config.py` uses freetsa.org with a pinned certificate; offline keeps the seal `PENDING` and `retry-timestamps` retries, never faked. |
 | 2 | **Curate sample pcaps so all 4 detectors fire** | A walkthrough where TLS/SSLBL shows zero hits is weak. Hand-pick captures from malware-traffic-analysis.net per detector. | OPEN |
 | 3 | **"Court-admissible" wording** | Overclaiming invites a brutal "prove it" question. Reframe toward "evidentiary integrity / tamper-evident, designed toward admissibility." Prove tamper-evidence live instead. | CLOSED 2026-10-22 (decision F, option 1, step 1): "court-admissible" replaced by "tamper-evident, designed toward admissibility" in CLAUDE.md, logic.md and plan.md. Step 2 (one fixed evidence-sentence template) is core code, still to do. |
 | 4 | **tshark on the dev machine** | PyShark needs tshark installed; verify on the actual machine. Keep dpkt path independent. | OPEN. Verified 2026-10-20: tshark MISSING on this Mac (`which tshark` empty); pyshark is pip-installed in `.venv`. No code under `backend/` or `tests/` imports pyshark, so all 92 tests pass without tshark; only `scripts/check_deps.py` warns. The PyShark path is not built yet (Phase 2 TLS/JA3 work), so tshark becomes a hard need only when JA3 parsing lands. `brew install wireshark` then. |
@@ -184,7 +184,7 @@ language, no code) → user researches + writes it → user asks for help only i
 | 9 | **Adaptive C2 evades CV check** | Operator-tunable jitter can push CV above 0.1 on purpose. C2 severity is always MEDIUM (one signal, no corroboration). | ACCEPTED limitation; stated in `logic.md` section 2. |
 | 10 | **Parser coverage and cost** | `flow_parser` handles Ethernet/IPv4 TCP/UDP only (no pcapng, no IPv6, no UDP idle timeout). DNS and generic flows are two separate dpkt passes. `Features.inter_arrival_times` is left empty (detectors use flow start times). | OPEN: fold into one pass if large captures matter. |
 | 11 | **Interim JSON case store** | `CaseStore` keeps one JSON file per case until the SQLite append-only store (Phase 3 step 6); no tamper-evidence there yet. | RESOLVED by step 6 (PR #13): SQLite append-only tables + triggers; tamper-evidence itself comes from the custody chain (#10) + anchoring (#12). |
-| 12 | **Stale README status** | README listed the upload API, orchestrator, PDF and frontend as unbuilt and said 60 tests; suite is 92. | RESOLVED by this refresh PR. |
+| 12 | **Stale README status** | README listed the upload API, orchestrator, PDF and frontend as unbuilt and said 60 tests; suite is 92. | RESOLVED (#8): README status, layout and run instructions match `main`. |
 
 - **2026-10-22** — Docs only (Toby). Human approved every recommendation in dev-notes
   section "Open questions" (A-I); recorded as a short decisions log (section 14).

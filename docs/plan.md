@@ -131,11 +131,11 @@ demo.
 | 1 | plumbing | Shared shapes + config: `SealRecord` with both hashes and a timestamp status, `CustodyEntry.case_id`, `CheckResult` / `VerificationReport`. | done |
 | 2 | `[CORE]` | Streaming dual-hash seal (BLAKE3 + SHA-256 in one pass). `hash_file` → `FileDigests` (shared with verify); `seal_pcap` → seal with `PENDING` timestamp. | done |
 | 3 | `[CORE]` (Jim, PR + teaching) | Hash-chained custody (`backend/evidence/custody.py`): each entry embeds the prior entry's hash. | next |
-| 4 | `[CORE]` (Jim, PR + teaching) | RFC 3161 timestamp request and verify (`backend/evidence/timestamp.py`); offline falls back to `PENDING` and retries (risk #1). | todo |
-| 5 | `[CORE]` (Jim, PR + teaching) | Case verification and chain-head anchoring (`backend/evidence/verify.py`): re-hash the stored pcap, compare to the seal, walk the chain. | todo |
+| 4 | `[CORE]` (Jim, PR + teaching) | RFC 3161 timestamp request and verify (`backend/evidence/timestamp.py`); offline falls back to `PENDING` and retries (risk #1). | done (#11) |
+| 5 | `[CORE]` (Jim, PR + teaching) | Case verification and chain-head anchoring (`backend/evidence/verify.py`): re-hash the stored pcap, compare to the seal, walk the chain. | done (#12) |
 | 6 | plumbing | SQLite append-only store (no update/delete) and a content-addressed evidence store; replaces the interim JSON case store. | todo |
 | 7 | plumbing | CLI including `tamper-demo` (flip one byte → re-verify → flagged). | done (#4) |
-| 8 | docs | `logic.md` mechanism section, risks #1 and #5 marked resolved in `handoff.md`, `CLAUDE.md` commands. | todo |
+| 8 | docs | `logic.md` mechanism section, risks #1 and #5 marked resolved in `handoff.md`, `CLAUDE.md` commands. | done (#8) |
 
 ---
 
