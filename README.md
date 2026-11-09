@@ -99,12 +99,14 @@ Command line (no server needed; writes to `evidence_store/` unless you pass `--s
 ```bash
 python -m backend.cli seal capture.pcap       # seal and store; prints case id, BLAKE3, SHA-256
 python -m backend.cli analyze capture.pcap    # same, plus each finding with its evidence
+python -m backend.cli verify <case-id>        # INTACT / ALTERED / INCOMPLETE, each check with its evidence
+python -m backend.cli tamper-demo capture.pcap   # sealed copy, flip one byte, watch verify say ALTERED
 python -m backend.cli retry-timestamps        # retry seals still waiting for a trusted timestamp
+# add --offline before the command to never contact the timestamp authority
 ```
 
-`verify` and `tamper-demo` are listed but not built yet: they need the custody chain,
-timestamp check and case verification. Exit code 0 means success and 1 an error,
-explained in one line.
+Exit codes: 0 success, 1 error (explained in one line). `verify` uses 0 = INTACT,
+1 = ALTERED, 2 = INCOMPLETE (nothing failed, but a timestamp is still pending).
 
 `tshark` (Wireshark) is an external dependency for the PyShark parse path —
 `brew install wireshark` (macOS) or your platform's package manager. Not a pip
@@ -118,7 +120,7 @@ backend/
 ├── config.py          single source of truth for thresholds/baselines
 ├── pipeline.py        seal first, then parse and detect
 ├── intake.py          stage, validate, seal, store: shared by the API and the CLI
-├── cli.py             command line: seal / analyze / retry-timestamps
+├── cli.py             command line: seal / analyze / verify / tamper-demo / retry-timestamps
 ├── api/               FastAPI routes (upload, case, report)
 ├── ingest/            upload validation
 ├── parse/             pcap → flow/feature extraction (dpkt, entropy)

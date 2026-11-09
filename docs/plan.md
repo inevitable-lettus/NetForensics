@@ -134,7 +134,7 @@ demo.
 | 4 | `[CORE]` (Jim, PR + teaching) | RFC 3161 timestamp request and verify (`backend/evidence/timestamp.py`); offline falls back to `PENDING` and retries (risk #1). | todo |
 | 5 | `[CORE]` (Jim, PR + teaching) | Case verification and chain-head anchoring (`backend/evidence/verify.py`): re-hash the stored pcap, compare to the seal, walk the chain. | todo |
 | 6 | plumbing | SQLite append-only store (no update/delete) and a content-addressed evidence store; replaces the interim JSON case store. | todo |
-| 7 | plumbing | CLI including `tamper-demo` (flip one byte → re-verify → flagged). | todo |
+| 7 | plumbing | CLI including `tamper-demo` (flip one byte → re-verify → flagged). | done (#4) |
 | 8 | docs | `logic.md` mechanism section, risks #1 and #5 marked resolved in `handoff.md`, `CLAUDE.md` commands. | todo |
 
 ---

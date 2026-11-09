@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import re
+import sqlite3
 import subprocess
 import sys
 from dataclasses import replace
@@ -10,9 +11,11 @@ from pathlib import Path
 
 import pytest
 
-from backend.cli import EXIT_CODES_HELP, EXIT_ERROR, EXIT_NOT_BUILT, EXIT_OK, EXIT_PENDING, main
+from backend.cli import EXIT_CODES_HELP, EXIT_ERROR, EXIT_OK, EXIT_PENDING, main
 from backend.config import CONFIG
+from backend.db.anchor_log import SqliteAnchorLog
 from backend.db.case_repository import SqliteCaseRepository
+from backend.db.custody_log import SqliteCustodyLog
 from backend.evidence.tsa_client import TsaUnavailableError
 from backend.models import TimestampStatus
 from tests.fixtures.packets import syn_frame, write_timed_pcap
@@ -104,7 +107,7 @@ def test_retry_without_a_timestamper_reports_pending_and_fakes_nothing(tmp_path:
     _run(store, "seal", str(_beacon_pcap(tmp_path)))
     code, output = _run(store, "retry-timestamps")
     assert code == EXIT_PENDING
-    assert output.startswith("1 case(s) PENDING. No timestamper is wired in yet")
+    assert output.startswith("1 case(s) PENDING. No TSA in use (offline)")
     assert len(_cases(store).pending_timestamp_case_ids()) == 1
 
 
@@ -130,13 +133,6 @@ def test_retry_with_tsa_down_exits_2_and_keeps_seal_pending(tmp_path: Path):
     assert f"{case_id}  STILL_PENDING" in output and "TSA offline" in output
 
 
-@pytest.mark.parametrize("argv", [["verify", "0" * 32], ["tamper-demo", "x.pcap"]])
-def test_core_dependent_commands_say_not_built(tmp_path: Path, argv, capsys):
-    code, _ = _run(tmp_path / "store", *argv)
-    assert code == EXIT_NOT_BUILT
-    assert "not built yet (needs #10/#11/#12" in capsys.readouterr().err
-
-
 def test_unknown_command_is_a_usage_error(tmp_path: Path):
     with pytest.raises(SystemExit) as exit_info:
         _run(tmp_path / "store", "frobnicate")
@@ -145,7 +141,7 @@ def test_unknown_command_is_a_usage_error(tmp_path: Path):
 
 def test_runs_as_a_module(tmp_path: Path):
     result = subprocess.run(
-        [sys.executable, "-m", "backend.cli", "--store", str(tmp_path / "s"),
+        [sys.executable, "-m", "backend.cli", "--store", str(tmp_path / "s"), "--offline",
          "seal", str(_beacon_pcap(tmp_path))],
         capture_output=True, text=True, cwd=Path(__file__).resolve().parents[1], check=False,
     )
@@ -160,7 +156,7 @@ def test_help_lists_every_exit_code(capsys):
     assert exit_info.value.code == 0
     help_text = capsys.readouterr().out
     assert EXIT_CODES_HELP in help_text
-    for code in (EXIT_OK, EXIT_ERROR, EXIT_PENDING, EXIT_NOT_BUILT):
+    for code in (EXIT_OK, EXIT_ERROR, EXIT_PENDING):
         assert f"\n  {code}  " in help_text
 
 
@@ -171,3 +167,123 @@ def test_corrupt_database_is_one_clear_line_and_exit_1(tmp_path: Path, capsys):
     code, _ = _run(store, "retry-timestamps")
     err = capsys.readouterr().err
     assert code == EXIT_ERROR and err.startswith("error: ") and err.count("\n") == 1
+
+
+# --------------------------------------------------------------------------- #
+# verify / tamper-demo (#4, on top of #12)
+# --------------------------------------------------------------------------- #
+
+FAKE_TSA = {"timestamper": lambda _sha256: (b"token", GEN_TIME),
+            "verify_token": lambda _token, _sha256: GEN_TIME}
+
+
+def _sealed(tmp_path: Path, **tsa) -> tuple[Path, str]:
+    store = tmp_path / "store"
+    return store, _case_id(_run(store, "seal", str(_beacon_pcap(tmp_path)), **tsa)[1])
+
+
+def _flip_stored_byte(store: Path, case_id: str) -> None:
+    blob = store / "blobs" / _cases(store).load(case_id).seal.sha256_hash
+    blob.chmod(0o644)
+    data = bytearray(blob.read_bytes())
+    data[40] ^= 0x01
+    blob.write_bytes(bytes(data))
+
+
+def test_seal_opens_an_anchored_custody_chain(tmp_path: Path):
+    store, case_id = _sealed(tmp_path)
+    entries = SqliteCustodyLog(store / "netforensics.sqlite").entries(case_id)
+    assert [e.event_type for e in entries] == ["ingest", "analyze", "anchor"]
+    anchors = SqliteAnchorLog(store / "netforensics.sqlite").anchors(case_id)
+    assert [(a.head_index, a.timestamp_status) for a in anchors] == [(1, TimestampStatus.PENDING)]
+
+
+def test_verify_untouched_case_with_a_tsa_exits_0(tmp_path: Path):
+    store, case_id = _sealed(tmp_path, **FAKE_TSA)
+    code, output = _run(store, "verify", case_id, **FAKE_TSA)
+    assert code == EXIT_OK, output
+    assert "Verdict    INTACT" in output and "[PASS] pcap_digests" in output
+    assert re.search(r"^Anchor     entry 3, hash [0-9a-f]{64} \(GRANTED\)", output, re.M)
+
+
+def test_verify_offline_case_is_incomplete_exit_2(tmp_path: Path):
+    store, case_id = _sealed(tmp_path)
+    code, output = _run(store, "verify", case_id)
+    assert code == EXIT_PENDING
+    assert "[NOT RUN] rfc3161_timestamp" in output and "Verdict    INCOMPLETE" in output
+
+
+def test_verify_after_a_byte_flip_exits_1_with_sealed_vs_measured(tmp_path: Path):
+    store, case_id = _sealed(tmp_path, **FAKE_TSA)
+    sealed = _cases(store).load(case_id).seal.pcap_hash
+    _flip_stored_byte(store, case_id)
+    code, output = _run(store, "verify", case_id, **FAKE_TSA)
+    assert code == EXIT_ERROR
+    assert f"[FAIL] pcap_digests: The stored evidence no longer matches its seal: BLAKE3 sealed {sealed}, measured" in output
+    assert "Verdict    ALTERED" in output
+
+
+def test_verify_with_the_blob_gone_is_altered_not_a_crash(tmp_path: Path):
+    store, case_id = _sealed(tmp_path)
+    (store / "blobs" / _cases(store).load(case_id).seal.sha256_hash).unlink()
+    code, output = _run(store, "verify", case_id)
+    assert code == EXIT_ERROR and "is missing" in output
+
+
+def test_verify_records_itself_and_reanchors(tmp_path: Path):
+    store, case_id = _sealed(tmp_path)
+    _run(store, "verify", case_id)
+    entries = SqliteCustodyLog(store / "netforensics.sqlite").entries(case_id)
+    assert [e.event_type for e in entries][3:] == ["verify", "anchor"]
+    assert entries[3].payload["verdict"] == "incomplete"
+    assert len(SqliteAnchorLog(store / "netforensics.sqlite").anchors(case_id)) == 2
+
+
+@pytest.mark.parametrize("case_id", ["0" * 32, "../etc"])
+def test_verify_unknown_case_is_one_error_line(tmp_path: Path, case_id: str, capsys):
+    code, _ = _run(tmp_path / "store", "verify", case_id)
+    err = capsys.readouterr().err
+    assert code == EXIT_ERROR and err.startswith("error: ") and err.count("\n") == 1
+
+
+def test_tamper_demo_catches_the_flip_offline_and_leaves_the_source_alone(tmp_path: Path):
+    pcap = _beacon_pcap(tmp_path)
+    before = pcap.read_bytes()
+    code, output = _run(tmp_path / "unused", "--offline", "tamper-demo", str(pcap))
+    assert code == EXIT_OK, output
+    assert pcap.read_bytes() == before
+    assert re.search(r"^verdict\s+INCOMPLETE\s+ALTERED$", output, re.M)
+    assert re.search(r"^pcap_digests\s+PASS\s+FAIL$", output, re.M)
+    assert "BLAKE3 sealed" in output and ", measured " in output
+    scratch = re.search(r"^Throwaway store (\S+)", output, re.M).group(1)
+    assert not Path(scratch).exists()
+    assert not (tmp_path / "unused").exists()
+
+
+def test_tamper_demo_with_a_tsa_goes_from_intact_to_altered(tmp_path: Path):
+    code, output = _run(tmp_path / "unused", "tamper-demo", str(_beacon_pcap(tmp_path)), **FAKE_TSA)
+    assert code == EXIT_OK
+    assert re.search(r"^verdict\s+INTACT\s+ALTERED$", output, re.M)
+
+
+def _cut_custody_tail(store: Path, case_id: str, keep: int) -> None:
+    """What someone with write access to the database file could do."""
+    with sqlite3.connect(store / "netforensics.sqlite") as connection:
+        connection.execute("DROP TRIGGER custody_entries_no_delete")
+        connection.execute("DELETE FROM custody_entries WHERE case_id = ? AND idx >= ?",
+                           (case_id, keep))
+
+
+def test_verify_of_a_tail_cut_case_prints_the_report_and_writes_nothing(tmp_path: Path, capsys):
+    store, case_id = _sealed(tmp_path)
+    _run(store, "verify", case_id)  # chain: ingest, analyze, anchor, verify, anchor(3)
+    _cut_custody_tail(store, case_id, keep=3)
+    log = SqliteCustodyLog(store / "netforensics.sqlite")
+    for _ in range(2):  # the second run must give the same diagnosis
+        code, output = _run(store, "verify", case_id)
+        assert code == EXIT_ERROR
+        assert "[FAIL] chain_head_anchor" in output and "removed from the end" in output
+        assert "Verdict    ALTERED" in output
+        assert len(log.entries(case_id)) == 3
+        assert len(SqliteAnchorLog(store / "netforensics.sqlite").anchors(case_id)) == 2
+        assert "nothing was written to its custody chain" in capsys.readouterr().err
