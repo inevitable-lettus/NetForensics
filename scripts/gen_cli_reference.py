@@ -60,6 +60,11 @@ def _table(parser: argparse.ArgumentParser) -> list[str]:
 def render() -> str:
     parser = _parser()
     sub = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    # Python 3.14+ colours argparse output when the environment asks for it (FORCE_COLOR,
+    # a terminal). The page must be the same plain text on every Python and setting, so
+    # switch it off here. Older versions ignore the attribute.
+    for each in (parser, *sub.choices.values()):
+        each.color = False
     helps = {c.dest: c.help for c in sub._choices_actions}
     lines = [HEADER, "## Global options", "", *_table(parser)]
     lines += ["## Commands", "", "| Command | What it does |", "|---|---|"]
