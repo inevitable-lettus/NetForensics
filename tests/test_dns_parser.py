@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import math
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
 import dpkt
 
+from backend.detectors.dns_exfil import DnsExfilDetector
 from backend.parse.dns_parser import (
     _query_names,
     _build_dns_flow,
@@ -171,7 +174,10 @@ def _non_utf8_query_packet(src_ip: str = "10.0.0.5") -> bytes:
 def test_query_names_keeps_non_utf8_label_with_escape():
     frame = _non_utf8_query_packet()
     payload = dpkt.ethernet.Ethernet(frame).data.data.data
-    assert _query_names(payload) == ["j\\xe4germeister.t1.evil.com"]
+    # The bad byte is kept as a lone surrogate, so the raw bytes can be recovered exactly.
+    (name,) = _query_names(payload)
+    assert name == "j\udce4germeister.t1.evil.com"
+    assert name.encode("utf-8", "surrogateescape") == b"j\xe4germeister.t1.evil.com"
 
 
 def test_query_names_ignores_payload_that_is_not_dns():
@@ -186,3 +192,55 @@ def test_parse_dns_flows_survives_non_utf8_label(tmp_pcap: Path):
     assert flow.features.dns.parent_domain == "evil.com"
     assert flow.features.dns.query_count == 2
     assert "j\\xe4germeister.t1" in flow.features.dns.subdomains
+
+
+# Issue #32: entropy and length are measured on the raw label bytes, not on the
+# four-character \\xNN escapes shown for them.
+_DENSE_LABEL = bytes(range(0x80, 0xA0))  # 32 distinct bytes; none is valid UTF-8 on its own
+
+
+def _dense_binary_packet() -> bytes:
+    frame = _dns_query_packet("q" * 32 + ".evil.com")
+    assert frame.count(b"q" * 32) == 1
+    return frame.replace(b"q" * 32, _DENSE_LABEL)
+
+
+def test_non_text_label_is_measured_on_raw_bytes(tmp_pcap: Path):
+    write_minimal_pcap(tmp_pcap, [_dense_binary_packet()])
+    (flow,) = parse_dns_flows(str(tmp_pcap))
+    dns = flow.features.dns
+    assert dns.max_subdomain_length == 32  # not 128 escaped characters
+    assert math.isclose(dns.max_subdomain_entropy, 5.0)  # log2(32); escaped text scores about 3.1
+    assert dns.subdomains == (_DENSE_LABEL.decode("utf-8", "backslashreplace"),)
+    assert dns.longest_subdomain == dns.subdomains[0]  # evidence still prints escapes
+
+
+def test_dense_binary_tunnel_label_is_detected(tmp_pcap: Path, config):
+    # Escaped, this label scored about 3.1 bits and slipped under the 4.2 cutoff.
+    write_minimal_pcap(tmp_pcap, [_dense_binary_packet()])
+    findings = DnsExfilDetector(config).run(parse_dns_flows(str(tmp_pcap)))
+    assert len(findings) == 1
+    assert "subdomain length 32 chars" in findings[0].evidence  # raw bytes, not 128 escaped characters
+    assert "x80" in findings[0].evidence  # the label is named with its escapes, as before
+
+
+def test_plain_text_labels_measure_the_same_as_before(tmp_pcap: Path):
+    write_minimal_pcap(tmp_pcap, [_dns_query_packet("abcd.evil.com")])
+    (flow,) = parse_dns_flows(str(tmp_pcap))
+    assert flow.features.dns.max_subdomain_length == 4
+    assert math.isclose(flow.features.dns.max_subdomain_entropy, 2.0)
+
+
+def test_bad_byte_in_the_parent_domain_stays_storable(tmp_pcap: Path, config):
+    # The parent (last two labels) holds a non-UTF-8 byte too. It must reach the flow,
+    # the finding and SQLite as printable text, not as a lone surrogate.
+    frame = _dense_binary_packet()
+    assert frame.count(b"\x03com") == 1
+    write_minimal_pcap(tmp_pcap, [frame.replace(b"\x03com", b"\x03c\xe4m")])
+    (flow,) = parse_dns_flows(str(tmp_pcap))
+    assert flow.features.dns.parent_domain == "evil.c\\xe4m"
+    (finding,) = DnsExfilDetector(config).run([flow])
+    finding.what.encode("utf-8")  # raises on a lone surrogate
+    with sqlite3.connect(":memory:") as db:
+        db.execute("CREATE TABLE t (what TEXT)")
+        db.execute("INSERT INTO t VALUES (?)", (finding.what,))

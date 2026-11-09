@@ -39,7 +39,7 @@ def _query_rate(dns: DnsFeatures, flow: Flow, window_secs: int) -> float:
 
 def _longest_subdomain(dns: DnsFeatures) -> str:
     """The subdomain label driving `max_subdomain_length` — named in evidence."""
-    return max(dns.subdomains, key=len, default="")
+    return dns.longest_subdomain or max(dns.subdomains, key=len, default="")
 
 
 class DnsExfilDetector(Detector):
