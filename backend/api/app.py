@@ -7,6 +7,8 @@ Run from the repo root:  uvicorn backend.api.app:app --reload
 
 from __future__ import annotations
 
+import sqlite3
+import threading
 import uuid
 from collections.abc import Callable
 from typing import Any, TypeVar
@@ -41,6 +43,9 @@ def create_app(
     `verify_token` replaces the pinned-certificate token check (tests only)."""
     storage = storage or Storage.open(config.evidence)
     router = APIRouter(prefix="/api")
+    # Verify reads the chain and then appends to it; two at once would both build on the
+    # same head. One lock per app serialises verify and tamper-test in this process.
+    chain_lock = threading.Lock()
 
     @router.post("/cases", status_code=201)
     def create_case(file: UploadFile = File(...)) -> dict[str, Any]:
@@ -70,17 +75,25 @@ def create_app(
     def verify(case_id: str) -> dict[str, Any]:
         """Re-hash and re-check the case. Recorded in its custody chain (and the head
         re-anchored) unless ALTERED, which is left exactly as found."""
-        report = _or_404(lambda: verify_stored(storage, case_id, config, verify_token))
-        anchor = record_verification(storage, case_id, report, timestamper, config)
+        with chain_lock:
+            report = _or_404(lambda: verify_stored(storage, case_id, config, verify_token))
+            try:
+                anchor = record_verification(storage, case_id, report, timestamper, config)
+            except (OSError, ValueError, LookupError, sqlite3.Error) as error:
+                # Another writer (a second server, the CLI) moved the chain head under
+                # us. The report stands; only the bookkeeping is lost, as in the CLI.
+                return to_jsonable(report) | {"recorded": False, "anchor": None,
+                                              "record_error": str(error)}
         return to_jsonable(report) | {"recorded": anchor is not None,
-                                      "anchor": _anchor_json(anchor)}
+                                      "anchor": _anchor_json(anchor), "record_error": None}
 
     @router.post("/cases/{case_id}/tamper-test")
     def run_tamper_test(case_id: str) -> dict[str, Any]:
         """Demo: verify a throwaway copy, flip one bit of it, verify again. The stored
         case, its file and its custody chain are never changed."""
         try:
-            result = _or_404(lambda: tamper_test(storage, case_id, config, verify_token))
+            with chain_lock:
+                result = _or_404(lambda: tamper_test(storage, case_id, config, verify_token))
         except EvidenceNotFoundError as error:
             raise HTTPException(status_code=409, detail="The stored evidence file is missing; "
                                 "verify the case to see the full report.") from error

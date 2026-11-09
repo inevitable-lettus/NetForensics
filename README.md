@@ -75,7 +75,7 @@ Actively built in public increments, not finished. Current state:
 - FastAPI upload/case/report API and PDF report (`backend/api/`, `backend/report/`)
 - Web page (`frontend/`, React + TypeScript): upload a capture, see its seal and
   findings, verify the case (all five checks) and run the tamper test on a throwaway copy
-- 372 passing tests across all of the above (live-network tests are opt-in)
+- 374 passing tests across all of the above (live-network tests are opt-in)
 
 **Not yet built**
 - JA3 fingerprinting detector (4th of four, deliberately deferred)
