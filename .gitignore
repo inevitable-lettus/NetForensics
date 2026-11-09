@@ -28,3 +28,7 @@ evidence_store/
 # Frontend
 node_modules/
 frontend/dist/
+
+# MkDocs build output
+/site/
+.venv-docs/

@@ -1,0 +1,14 @@
+$ python -m backend.cli --offline analyze sample-pcaps/synthetic-port-scan.pcap
+Case       <case-id>
+File       synthetic-port-scan.pcap (14024 bytes)
+BLAKE3     815b7beac79690b4e711ae85017b7114b414d17195551145825b227c88251d7f
+SHA-256    798bbab0c5a7db6d60f9121ac2f6e88cb101c2d65401728337e7ebf739880c9b
+Received   <time>
+Timestamp  PENDING (retry later: python -m backend.cli retry-timestamps)
+Flows      200
+Findings   1
+
+[MEDIUM] port_scan: Source 10.0.0.5
+  Why       Connections fan out across far more distinct ports and/or hosts than normal use produces in this short a window — the signature of active reconnaissance.
+  Evidence  Source 10.0.0.5, busiest 10 s window: distinct destination ports 200 (cutoff: at least 100, met); distinct destination hosts 1 (cutoff: at least 10, not met). Meaning: one source tried at least the cutoff number of ports or machines within a few seconds, more than normal use does, as a port scan (probing for open services) does.
+[exit code 0]

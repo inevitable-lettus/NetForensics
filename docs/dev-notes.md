@@ -654,3 +654,32 @@ case exactly as found and says so on stderr.
 
 **Limits.** The fact that someone ran verify on an ALTERED case is not in the chain (it
 prints to the terminal only). Exit 1 means ALTERED or error; read stderr to tell them apart.
+
+---
+
+## 17. The user documentation site (issues #24-#31)
+
+**What it does.** `user-docs/` is a MkDocs + Material site for people installing and using the
+CLI: getting started, one page per command, concepts, reference, design notes, help.
+`mkdocs.yml` and `.readthedocs.yaml` build it on Read the Docs (Python 3.13, dependencies
+pinned in `user-docs/requirements.txt`). This file stays the short review notes; the site is
+the long form.
+
+**Key concept: generated, not typed.** Two kinds of text would drift from the code if written
+by hand, so scripts produce them and CI compares:
+- `scripts/gen_cli_reference.py` writes `reference/cli.md` from the argparse parser in
+  `backend/cli.py`. `--check` exits 1 if the committed page differs.
+- `scripts/check_docs_examples.py` runs every documented command with `--offline` against the
+  synthetic captures and compares the output with `user-docs/examples/*.txt`, which the pages
+  embed. Case ids, times, the temporary path and chain hashes are masked first; the capture's own
+  digests stay. `--update` rewrites the files for review.
+
+**Example.** Change a message in `backend/cli.py`. `gen_cli_reference.py --check` or
+`check_docs_examples.py` now fails in the Docs workflow and names the stale file; rerun with
+the update flag, read the diff, commit it.
+
+**Limits.**
+- Examples that need a live timestamp authority (INTACT) are shown but cannot be checked in CI.
+- The prose is hand-written; only the CLI page and the command outputs are generated.
+- Parser help text gained two argument descriptions so the CLI page has no empty cells.
+

@@ -1,9 +1,9 @@
 # Build Plan — NetForensics
 
 The dependency-ordered roadmap for building NetForensics. This is the **static plan**;
-live progress is tracked in [`docs/handoff.md`](docs/handoff.md), not here. Design
-reference: [`docs/architecture.md`](docs/architecture.md) ·
-[`docs/logic.md`](docs/logic.md). Coding rules: [`CLAUDE.md`](CLAUDE.md).
+live progress is tracked in [`docs/handoff.md`](handoff.md), not here. Design
+reference: [`docs/architecture.md`](architecture.md) ·
+[`docs/logic.md`](logic.md). Coding rules: [`CLAUDE.md`](../CLAUDE.md).
 
 ---
 
@@ -36,7 +36,7 @@ phase's `[INDEP]` plumbing. Phase N core work and Phase N+1 plumbing can overlap
 > "user writes everything solo" phase, itself now historical). Phase order and file
 > list below are unchanged throughout.
 
-All work follows the [`CLAUDE.md`](CLAUDE.md) coding standards: functions ≤50–60 lines,
+All work follows the [`CLAUDE.md`](../CLAUDE.md) coding standards: functions ≤50–60 lines,
 the shared `Detector` interface, one source of truth for thresholds, strict separation of
 concerns (parsing never touches the DB, detectors never touch HTTP).
 
@@ -47,7 +47,7 @@ concerns (parsing never touches the DB, detectors never touch HTTP).
 The scaffolding the user later fills. No business logic yet — just the shapes everything
 plugs into.
 
-- `[INDEP]` Repo scaffold per [`docs/architecture.md`](docs/architecture.md):
+- `[INDEP]` Repo scaffold per [`docs/architecture.md`](architecture.md):
   `backend/{ingest,parse,detectors,evidence,report,db,api}`, `frontend/`, `sample-pcaps/`.
 - `[INDEP]` **Shared data models, defined once** (single source of truth):
   `Flow`, `Features`, `Finding` (carries the human-readable evidence string),
@@ -157,7 +157,7 @@ report.
 
 ## Cross-cutting
 
-**Open risks** (tracked live in [`docs/handoff.md`](docs/handoff.md)):
+**Open risks** (tracked live in [`docs/handoff.md`](handoff.md)):
 1. RFC 3161 TSA choice + offline fallback — addressed in Phase 3.
 2. Curate demo pcaps so all four detectors fire — addressed in Phases 2 & 4.
 3. "Court-admissible" wording → reframed to "tamper-evident, designed toward admissibility" (CLOSED 2026-10-22).

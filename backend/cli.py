@@ -99,13 +99,14 @@ def _parser() -> argparse.ArgumentParser:
                                          "stored byte, verify again"),
     ):
         command = commands.add_parser(name, help=help_text)
-        command.add_argument("pcap", type=Path)
+        command.add_argument("pcap", type=Path,
+                             help="path to a classic .pcap capture (not pcapng)")
         command.set_defaults(command=handler)
     retry = commands.add_parser("retry-timestamps", help="retry every PENDING seal")
     retry.set_defaults(command=cmd_retry_timestamps)
     verify = commands.add_parser("verify", help="re-check a stored case: INTACT, ALTERED "
                                                 "or INCOMPLETE")
-    verify.add_argument("case_id")
+    verify.add_argument("case_id", help="case id printed by seal or analyze")
     verify.set_defaults(command=cmd_verify)
     return parser
 

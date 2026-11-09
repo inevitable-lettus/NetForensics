@@ -165,6 +165,12 @@ python scripts/check_deps.py
 # run tests
 python -m pytest -q
 
+# user documentation site (docs: pip install -r user-docs/requirements.txt)
+python scripts/make_synthetic_pcaps.py        # sample captures the examples use
+python scripts/gen_cli_reference.py           # regenerate user-docs/reference/cli.md (--check in CI)
+python scripts/check_docs_examples.py --update  # regenerate command output in user-docs/examples/
+mkdocs build --strict                         # what Read the Docs and CI run
+
 # run backend (API on :8000; cases stored under evidence_store/)
 uvicorn backend.api.app:app --reload
 

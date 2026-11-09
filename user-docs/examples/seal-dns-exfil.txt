@@ -1,0 +1,8 @@
+$ python -m backend.cli --offline seal sample-pcaps/synthetic-dns-exfil.pcap
+Case       <case-id>
+File       synthetic-dns-exfil.pcap (15624 bytes)
+BLAKE3     3ee6719d96750665f506b2031ce57d0a262674902b4a3271445d77dc272ec0b7
+SHA-256    8efb03fd13a4f2de01e16b376e845f8e1a31176168ae38b1fe52c1b0cb5044a4
+Received   <time>
+Timestamp  PENDING (retry later: python -m backend.cli retry-timestamps)
+[exit code 0]

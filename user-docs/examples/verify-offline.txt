@@ -1,0 +1,10 @@
+$ python -m backend.cli --offline verify <case-id>
+[PASS] pcap_digests: The stored file re-hashes to the sealed values: BLAKE3 3ee6719d96750665f506b2031ce57d0a262674902b4a3271445d77dc272ec0b7, SHA-256 8efb03fd13a4f2de01e16b376e845f8e1a31176168ae38b1fe52c1b0cb5044a4, 15624 bytes.
+[PASS] custody_chain: All 3 custody entries recompute to their stored hashes and each links to the one before; entry 0 is bound to the seal of synthetic-dns-exfil.pcap (SHA-256 8efb03fd13a4f2de01e16b376e845f8e1a31176168ae38b1fe52c1b0cb5044a4). Head hash: <hash>. The chain alone cannot show that no entries were removed from the end; that needs the anchored head.
+[PASS] seal_binding: Custody entry 0 is bound to this seal (genesis hash <hash>).
+[NOT RUN] rfc3161_timestamp: No trusted timestamp yet: the seal is PENDING, so when the evidence was sealed rests on this system's clock alone.
+[NOT RUN] chain_head_anchor: 1 anchor(s) match the chain, but the latest, entry 1 (hash <hash>), is PENDING: no TSA has signed it yet; the 1 later entries are protected by the chain alone.
+
+Verdict    INCOMPLETE
+Anchor     entry 3, hash <hash> (PENDING); keep a copy outside this system: a later verify must still find this entry.
+[exit code 2]

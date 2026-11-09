@@ -1,0 +1,10 @@
+$ python -m backend.cli --offline analyze sample-pcaps/synthetic-benign.pcap
+Case       <case-id>
+File       synthetic-benign.pcap (4508 bytes)
+BLAKE3     2729e76fdac2de35e6f43e20925709510fb86c4450d80f698c1d63a6d7262fa6
+SHA-256    2505bbe9034ad0951453a189e7458bc3710d3e9f54c1ff80748d77ce54fcd6ff
+Received   <time>
+Timestamp  PENDING (retry later: python -m backend.cli retry-timestamps)
+Flows      26
+Findings   0
+[exit code 0]

@@ -1,0 +1,23 @@
+$ python -m backend.cli --offline tamper-demo sample-pcaps/synthetic-dns-exfil.pcap
+Throwaway store <path> (deleted afterwards); sample-pcaps/synthetic-dns-exfil.pcap is only read.
+Case       <case-id>
+File       synthetic-dns-exfil.pcap (15624 bytes)
+BLAKE3     3ee6719d96750665f506b2031ce57d0a262674902b4a3271445d77dc272ec0b7
+SHA-256    8efb03fd13a4f2de01e16b376e845f8e1a31176168ae38b1fe52c1b0cb5044a4
+Received   <time>
+Timestamp  PENDING (retry later: python -m backend.cli retry-timestamps)
+
+Flipped one bit of byte 7812 of the stored copy.
+
+check                before      after
+pcap_digests         PASS        FAIL
+custody_chain        PASS        PASS
+seal_binding         PASS        PASS
+rfc3161_timestamp    NOT RUN     NOT RUN
+chain_head_anchor    NOT RUN     NOT RUN
+verdict              INCOMPLETE  ALTERED
+
+After tampering:
+[FAIL] pcap_digests: The stored evidence no longer matches its seal: BLAKE3 sealed 3ee6719d96750665f506b2031ce57d0a262674902b4a3271445d77dc272ec0b7, measured e760fac8e0f64e332b0f03142d69a670ff59a20b2a76fa764c48ae7f05eba620; SHA-256 sealed 8efb03fd13a4f2de01e16b376e845f8e1a31176168ae38b1fe52c1b0cb5044a4, measured a55f9333760e5df850dba5d2c7334fdc3d35fdfe8c8c823dc0c2ca62dc378f6e.
+note: case is ALTERED; nothing was written to its custody chain, so it stays exactly as found.
+[exit code 0]
