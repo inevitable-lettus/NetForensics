@@ -1,0 +1,14 @@
+$ python -m backend.cli --offline analyze sample-pcaps/synthetic-dns-exfil.pcap
+Case       <case-id>
+File       synthetic-dns-exfil.pcap (15624 bytes)
+BLAKE3     3ee6719d96750665f506b2031ce57d0a262674902b4a3271445d77dc272ec0b7
+SHA-256    8efb03fd13a4f2de01e16b376e845f8e1a31176168ae38b1fe52c1b0cb5044a4
+Received   <time>
+Timestamp  PENDING (retry later: python -m backend.cli retry-timestamps)
+Flows      1
+Findings   1
+
+[HIGH] dns_exfil: DNS parent domain exfil.example
+  Why       Subdomain randomness exceeds the benign DNS baseline, corroborated by subdomain length and/or query volume — the signature of data encoded into DNS queries.
+  Evidence  DNS parent domain 'exfil.example', longest subdomain '5kncyj8u64vktreawrolb6oh6v05ik8jpwxpn7xu': Shannon entropy 4.80 bits/char (cutoff: at least 4.2 bits/char, met; benign baseline about 2.5); subdomain length 40 chars (cutoff: at least 30 chars, met); query rate 121.0 queries per 60 s (cutoff: at least 50 queries per 60 s, met; scaled to a 60 s window from 120 queries in total). Meaning: the subdomains look random, and are long or frequent, as when data is smuggled out encoded in DNS queries.
+[exit code 0]

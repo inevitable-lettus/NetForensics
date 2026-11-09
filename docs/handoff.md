@@ -8,15 +8,14 @@ holds where the build is, what to do next, and unresolved decisions. For the des
 
 ## Current phase
 
-**Phase 3 — evidence-integrity layer built (2026-11-09); docs site next.** Seal (dual
+**Phase 3 — evidence-integrity layer and user documentation site built (2026-11-09).** Seal (dual
 hash) → RFC 3161 timestamp (PENDING + retry offline) → hash-chained custody → verify with
 chain-head anchoring, persisted append-only in SQLite and driven by the CLI
 (`seal`, `analyze`, `verify`, `tamper-demo`, `retry-timestamps`). Three of four detectors
 done (DNS exfil, C2 beacon, port scan). JA3 fingerprinting **deliberately deferred** (user
 call, 2026-09-19). The React frontend is kept but is not part of v1. Test suite green
 (**363 passed**). Walkthrough: [`demo-script.md`](demo-script.md). Plan:
-[`plan.md`](plan.md) "Phase 3 — step plan". Remaining: the user documentation site
-(issues #24-#31), a verify endpoint and tamper control for the API/frontend, JA3.
+[`plan.md`](plan.md) "Phase 3 — step plan". Remaining: a verify endpoint and tamper control for the API/frontend, JA3.
 
 ## Done so far
 

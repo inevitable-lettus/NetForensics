@@ -1,0 +1,14 @@
+$ python -m backend.cli --offline analyze sample-pcaps/synthetic-c2-beacon.pcap
+Case       <case-id>
+File       synthetic-c2-beacon.pcap (1424 bytes)
+BLAKE3     664f4027dcd18b6880e082b80109f884abcb65345635b4f2524819d504810dee
+SHA-256    b046561bfb78b41764f01376cfb4ec266942dc5e3446be0f9e71446ade1f3340
+Received   <time>
+Timestamp  PENDING (retry later: python -m backend.cli retry-timestamps)
+Flows      20
+Findings   1
+
+[MEDIUM] c2_beacon: 10.0.0.5 -> 198.51.100.7
+  Why       Connection timing is far more regular than human-driven traffic — consistent with an automated check-in/beacon.
+  Evidence  Host 10.0.0.5 to 198.51.100.7: connections 20 (cutoff: at least 10, met); coefficient of variation of the gaps 0.012 (cutoff: at most 0.1, met; mean gap 60.1 s, spread ±0.7 s). Meaning: the connections arrive at machine-regular intervals, as an automated check-in (C2 beacon) does; people browsing are irregular.
+[exit code 0]

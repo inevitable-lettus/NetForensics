@@ -1,0 +1,3 @@
+$ python -m backend.cli --offline analyze README.md
+error: File is not a libpcap capture (bad or missing header).
+[exit code 1]

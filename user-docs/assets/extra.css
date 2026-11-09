@@ -1,0 +1,22 @@
+/* NetForensics documentation: small tweaks on top of Material for MkDocs. */
+:root {
+  --md-primary-fg-color: #0f766e;
+  --md-primary-fg-color--light: #14b8a6;
+  --md-primary-fg-color--dark: #115e59;
+  --md-accent-fg-color: #0d9488;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #10242b;
+  --md-accent-fg-color: #5fd0c0;
+  --md-typeset-a-color: #5fd0c0;
+}
+
+/* Command output is wide (evidence sentences are one line on purpose): scroll, don't wrap. */
+.md-typeset pre > code {
+  white-space: pre;
+}
+
+.md-typeset table:not([class]) {
+  font-size: 0.78rem;
+}

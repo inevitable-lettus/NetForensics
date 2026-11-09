@@ -153,6 +153,7 @@ docs/
 ├── dev-notes.md       plain-language explanations with worked examples
 ├── demo-script.md     seal, analyze, verify, tamper-demo on a sample capture
 └── plan.md            phased build roadmap
+user-docs/             user documentation site source (see mkdocs.yml); CLI reference and command output are generated
 tests/                 one test module per detector/parser, crafted fixtures
 scripts/               environment check, sample-capture generator and fetcher
 sample-pcaps/          curated captures for exercising each detector (git-ignored; generate with scripts/make_synthetic_pcaps.py)
@@ -162,6 +163,7 @@ sample-pcaps/          curated captures for exercising each detector (git-ignore
 
 - [`docs/architecture.md`](docs/architecture.md) — pipeline stages, stack, data flow
 - [`docs/logic.md`](docs/logic.md) — exact detector formulas and the evidence contract
+- [`user-docs/`](user-docs/index.md) — the user documentation site (MkDocs + Material, built by Read the Docs): install, command guide, concepts, generated CLI reference, help. Build locally with `mkdocs build --strict`
 - [`docs/demo-script.md`](docs/demo-script.md) — seal, analyze, verify and tamper-demo, with the output to expect
 - [`docs/handoff.md`](docs/handoff.md) — current phase, session log, open decisions
 - [`docs/plan.md`](docs/plan.md) — the phased build roadmap

@@ -1,0 +1,3 @@
+$ python -m backend.cli --offline retry-timestamps
+1 case(s) PENDING. No TSA in use (offline). Seals stay PENDING; nothing is faked.
+[exit code 2]
