@@ -28,6 +28,7 @@ own code or plain arithmetic.
 14. [Decisions log](#14-decisions-log)
 15. [Case verification and chain-head anchoring](#15-case-verification-and-chain-head-anchoring-issue-12)
 16. [verify and tamper-demo on the command line](#16-verify-and-tamper-demo-on-the-command-line-issue-4)
+17. [Verification and the tamper test on the web page](#17-verification-and-the-tamper-test-on-the-web-page-issue-5)
 
 ## Words used throughout
 
@@ -521,8 +522,8 @@ only, no colour.
 Listed so nobody mistakes a plan for a feature. Each gets its own section above when it
 lands.
 
-- **Verification in the API, UI and PDF:** the CLI has it (section 16); #5 and #6 add it
-  to the web app and the report. Report export should also anchor the chain head.
+- **Verification in the PDF report (#6):** the CLI and the web page have it (sections 16,
+  17). Report export should also anchor the chain head.
 - **JA3 fingerprinting (4th detector):** deferred; approved design in section 13.
 
 ---
@@ -684,3 +685,30 @@ the update flag, read the diff, commit it.
 - The prose is hand-written; only the CLI page and the command outputs are generated.
 - Parser help text gained two argument descriptions so the CLI page has no empty cells.
 
+
+---
+
+## 17. Verification and the tamper test on the web page (issue #5)
+
+**What it does.** The web page (`frontend/`) has three tabs per case: Findings,
+Verification and Tamper test. Both actions call the same code as the CLI
+(`backend/case_verification.py`), through two API routes:
+- `POST /api/cases/{id}/verify` returns the verdict and the five checks, each with its
+  evidence sentence. As on the CLI, the run is recorded in the custody chain and the head
+  re-anchored, unless the case is ALTERED; then nothing is written.
+- `POST /api/cases/{id}/tamper-test` copies the stored capture to a temporary file,
+  verifies the copy, flips one bit in it and verifies again. The stored case is never
+  touched, so the route needs no on/off switch.
+
+**Key concept: three verdicts, three colours.** Green VERIFIED (the API's `intact`),
+red ALTERED, amber INCOMPLETE. A check that could not run yet (a pending timestamp) is
+amber "Not run", never green: pending is not proof.
+
+**Example.** `synthetic-c2-beacon.pcap` (1,424 bytes) with a live FreeTSA timestamp:
+Verification shows VERIFIED, all five checks passed. The tamper test flips a bit of byte
+712: the copy goes from VERIFIED to ALTERED, only "Evidence file" fails, with the sealed and
+measured BLAKE3 and SHA-256 side by side.
+
+**Limits.** The tamper test needs the stored file (it answers 409 when the file is gone;
+verify reports that case). The open case is kept in the address (`#case=<id>`), so a
+reload reopens it; there is no case list.

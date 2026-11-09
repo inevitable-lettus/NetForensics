@@ -1,12 +1,12 @@
 # Frontend
 
-Minimal React + TypeScript (Vite) page: upload a pcap, see the evidence seal and the
-findings with their evidence strings, download the PDF report. The tamper-test /
-integrity-verify view arrives with the evidence layer.
+React + TypeScript (Vite) page: upload a pcap or open a case by id, see the evidence
+seal and the findings with their evidence strings, verify the case (five checks and the
+verdict) and run the tamper test on a throwaway copy. The PDF report link is unchanged.
 
 ```
 npm install
-npm run dev      # http://localhost:5173, proxies /api to uvicorn on :8000
+npm run dev      # http://localhost:5173, proxies /api to uvicorn on :8000 (or NF_API_URL)
 npm run build    # type-check + production build
 ```
 

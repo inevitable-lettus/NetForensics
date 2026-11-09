@@ -13,9 +13,9 @@ hash) → RFC 3161 timestamp (PENDING + retry offline) → hash-chained custody 
 chain-head anchoring, persisted append-only in SQLite and driven by the CLI
 (`seal`, `analyze`, `verify`, `tamper-demo`, `retry-timestamps`). Three of four detectors
 done (DNS exfil, C2 beacon, port scan). JA3 fingerprinting **deliberately deferred** (user
-call, 2026-09-19). The React frontend is kept but is not part of v1. Test suite green
+call, 2026-09-19). The web page (`frontend/`) covers upload, findings, verification and the tamper test (#5). Test suite green
 (**363 passed**). Walkthrough: [`demo-script.md`](demo-script.md). Plan:
-[`plan.md`](plan.md) "Phase 3 — step plan". Remaining: a verify endpoint and tamper control for the API/frontend, JA3.
+[`plan.md`](plan.md) "Phase 3 — step plan". Remaining: verification in the PDF report (#6), JA3.
 
 ## Done so far
 

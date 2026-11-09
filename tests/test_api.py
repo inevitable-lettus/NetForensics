@@ -133,3 +133,85 @@ def test_tsa_reply_at_ingest_grants_the_seal(tmp_path: Path):
     seal = _upload(client, "beacon.pcap", _beacon_pcap_bytes(tmp_path)).json()["seal"]
     assert seal["timestamp_status"] == "granted"
     assert seal["timestamp_gen_time"] == gen_time.isoformat()
+
+
+# --------------------------------------------------------------------------- #
+# Verify and tamper test (#5)
+# --------------------------------------------------------------------------- #
+
+GEN = datetime(2026, 11, 9, 9, 0, tzinfo=timezone.utc)
+
+
+def _granting_client(tmp_path: Path) -> tuple[TestClient, Storage]:
+    """A fake TSA that grants everything, and a verifier that accepts its tokens."""
+    storage = _storage(tmp_path / "store")
+    app = create_app(storage, timestamper=lambda _sha: (b"token", GEN),
+                     verify_token=lambda _token, _sha: GEN)
+    return TestClient(app), storage
+
+
+def _case(client: TestClient, tmp_path: Path) -> str:
+    return _upload(client, "beacon.pcap", _beacon_pcap_bytes(tmp_path)).json()["case_id"]
+
+
+def test_verify_returns_every_check_and_records_one_entry_plus_anchor(tmp_path: Path):
+    client, storage = _granting_client(tmp_path)
+    case_id = _case(client, tmp_path)
+    before = len(storage.custody.entries(case_id))
+    body = client.post(f"/api/cases/{case_id}/verify").json()
+    assert body["verdict"] == "intact"
+    assert [c["name"] for c in body["checks"]] == [
+        "pcap_digests", "custody_chain", "seal_binding", "rfc3161_timestamp", "chain_head_anchor"]
+    assert all(c["passed"] is True and c["evidence"] for c in body["checks"])
+    assert body["recorded"] is True
+    assert body["anchor"]["head_index"] == before and body["anchor"]["timestamp_status"] == "granted"
+    events = [e.event_type for e in storage.custody.entries(case_id)][before:]
+    assert events == ["verify", "anchor"]
+
+
+def test_verify_with_pending_timestamps_is_incomplete_not_intact(client: TestClient, tmp_path: Path):
+    body = client.post(f"/api/cases/{_case(client, tmp_path)}/verify").json()
+    assert body["verdict"] == "incomplete"
+    stamp = next(c for c in body["checks"] if c["name"] == "rfc3161_timestamp")
+    assert stamp["passed"] is None
+
+
+@pytest.mark.parametrize("path", ["verify", "tamper-test"])
+@pytest.mark.parametrize("case_id", ["0" * 32, "not-a-case"])
+def test_verify_and_tamper_test_of_unknown_case_are_404(client: TestClient, path, case_id):
+    assert client.post(f"/api/cases/{case_id}/{path}").status_code == 404
+
+
+def test_altered_case_is_reported_and_left_as_found(tmp_path: Path):
+    client, storage = _granting_client(tmp_path)
+    case_id = _case(client, tmp_path)
+    blob = storage.evidence.path_for(storage.cases.load(case_id).seal.sha256_hash)
+    blob.chmod(0o644)
+    blob.write_bytes(blob.read_bytes() + b"\x00")
+    entries = len(storage.custody.entries(case_id))
+    body = client.post(f"/api/cases/{case_id}/verify").json()
+    assert body["verdict"] == "altered" and body["recorded"] is False and body["anchor"] is None
+    digests = next(c for c in body["checks"] if c["name"] == "pcap_digests")
+    assert digests["passed"] is False and "sealed" in digests["evidence"]
+    assert len(storage.custody.entries(case_id)) == entries
+
+
+def test_tamper_test_flips_a_copy_and_never_touches_the_case(tmp_path: Path):
+    client, storage = _granting_client(tmp_path)
+    case_id = _case(client, tmp_path)
+    blob = storage.evidence.path_for(storage.cases.load(case_id).seal.sha256_hash)
+    stored, entries = blob.read_bytes(), storage.custody.entries(case_id)
+    body = client.post(f"/api/cases/{case_id}/tamper-test").json()
+    assert body["before"]["verdict"] == "intact" and body["after"]["verdict"] == "altered"
+    assert body["flipped_offset"] == len(stored) // 2
+    failed = [c["name"] for c in body["after"]["checks"] if c["passed"] is False]
+    assert failed == ["pcap_digests"]
+    assert blob.read_bytes() == stored and storage.custody.entries(case_id) == entries
+    assert client.post(f"/api/cases/{case_id}/verify").json()["verdict"] == "intact"
+
+
+def test_tamper_test_with_the_stored_file_gone_is_409(tmp_path: Path):
+    client, storage = _granting_client(tmp_path)
+    case_id = _case(client, tmp_path)
+    storage.evidence.path_for(storage.cases.load(case_id).seal.sha256_hash).unlink()
+    assert client.post(f"/api/cases/{case_id}/tamper-test").status_code == 409
